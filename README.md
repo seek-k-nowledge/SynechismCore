@@ -6,6 +6,14 @@ github.com/seek-k-nowledge/SynechismCore · MIT License · Target: arXiv · ML4P
 
 ---
 
+## Overview
+
+SynechismCore explores whether encoding φ (the golden ratio) as an aperiodic scaling structure inside a Neural ODE improves its ability to model chaotic dynamical systems — systems like turbulent fluids, atmospheric weather, and robotic control, where small differences compound unpredictably over time. Standard sequence models (LSTMs, Transformers) tend to lose accuracy quickly on these systems as errors accumulate; this work tests whether φ-scaled dynamics hold up longer and more accurately across several real benchmark domains.
+
+Results are mixed by design — the goal is honest benchmarking, not a clean win. SynechismCore currently outperforms baselines on turbulence (KS-PDE) and chaotic bifurcation (Lorenz) modeling, is competitive on finance and weather forecasting, and underperforms on robotics control. Fresh H100 benchmark runs (in progress) will confirm whether these results hold beyond the original Kaggle free-tier testing.
+
+---
+
 ## What This Package Is
 
 Complete benchmark suite for SynechismCore v23.0.1 — the patched version
@@ -91,6 +99,8 @@ synechism_v23_patched/
 ```
 
 ---
+
+**Note:** GPU rental provider below (Lambda Labs) reflects the original setup path. Currently migrating to a debit-card-friendly provider (Paperspace) — this section will be updated once that's confirmed working.
 
 ## Part 1: Renting a GPU (First Time)
 
