@@ -1,0 +1,39 @@
+SYNECHISMCORE — CONFIRMED RESULTS FROM KAGGLE RUNS
+====================================================
+These are the baseline results. The fresh run replicates and extends them.
+Hardware: Kaggle free-tier (Tesla P100 and T4×2). No rented GPU used yet.
+
+SOURCE: results_071713.txt (v22.0, seeds 0-4, 100 epochs, Kaggle T4×2)
+NOTE: p-values from this run are INVALID (scalar comparison bug).
+      Recomputed correctly in fresh run.
+----------------------------------------------------------------------
+KS-PDE (nu 1.0->0.5):      ODE 0.2952+-0.0021  TF 0.4207  -> 1.43x WIN
+Lorenz-63 (rho 28->40):    ODE 0.7163+-0.0754  TF 0.6714  -> 0.94x LOSS
+Finance (calm->crisis):    ODE 5.6783+-0.0975  TF 5.8804  -> 1.04x marginal
+Weather L96 (F 8->16):     ODE 1.0550+-0.0330  TF 1.0508  -> 1.00x tied
+Robotics (gamma 0.5->0.05): ODE 12.8109+-0.394 TF 6.6470  -> 0.52x LOSS
+
+SOURCE: burificatione.pdf (v17.2, seed 42, Kaggle P100, vs LSTM)
+p-values from this run ARE VALID (correct Mann-Whitney U).
+----------------------------------------------------------------------
+rho=35: ODE 0.1269 vs LSTM 0.1772 -> 1.40x  p<1e-43
+rho=40: ODE 0.3253 vs LSTM 0.3875 -> 1.19x  p<1e-43
+rho=45: ODE 0.5597 vs LSTM 0.6272 -> 1.12x  p<1e-43
+rho=50: ODE 0.8037 vs LSTM 0.8658 -> 1.08x  p<1e-43
+
+SOURCE: v17.2 terminal log (Kaggle P100)
+----------------------------------------------------------------------
+Coherence: 19,940 steps (15.8x vs ~1,260 LSTM baseline)
+Phi significance: p=0.0000 vs uniform sampling
+Bifurcation p-value: 1.85e-27
+
+SOURCE: synechism_weather_dashboard.png (seed 42, Kaggle T4x2)
+----------------------------------------------------------------------
+F=8  normal:  LSTM 0.7802  ODE 0.7343  -> 1.06x
+F=12 severe:  LSTM 1.1684  ODE 1.1471  -> 1.02x  p=6.36e-07
+F=16 extreme: LSTM 1.4801  ODE 1.4658  -> 1.01x  p=9.51e-04
+
+ADDITIONAL CONFIRMED FINDING:
+Mamba collapse at high chaos (from results_071713.txt):
+  Lorenz rho=50: Mamba MAE=13.43 vs TF 7.87 vs ODE 9.80
+  SSM architectures with ZOH discretization collapse at high chaos.
