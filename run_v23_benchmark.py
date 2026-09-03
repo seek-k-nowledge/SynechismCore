@@ -109,7 +109,7 @@ def build_models(variants, in_dim, pred_steps=20, system='default', hidden=128):
     return models
 
 
-def run_experiment(exp_name, variants, seeds, epochs, batch_size=256):
+def run_experiment(exp_name, variants, seeds, epochs, batch_size=512):
     print(f"\n{'='*62}")
     print(f"  {exp_name.upper()} | variants={variants} | seeds={seeds}")
     print(f"{'='*62}")
