@@ -152,7 +152,19 @@ def make_ks_dataset(nu=1.0, n_traj=40, seq_len=64, pred_steps=16,
     total = seq_len + pred_steps + 5
 
     for i in range(n_traj):
-        traj = generate_ks(N=N, L=L, nu=nu, n_steps=n_steps, seed=seed+i*7)
+        # PATCH P8: retry if generator produces NaN/Inf (solver overflow
+        # at low nu / high turbulence)
+        traj = None
+        for attempt in range(10):
+            candidate = generate_ks(N=N, L=L, nu=nu, n_steps=n_steps,
+                                    seed=seed + i*7 + attempt*100000)
+            if not (np.isnan(candidate).any() or np.isinf(candidate).any()):
+                traj = candidate
+                break
+        if traj is None:
+            raise RuntimeError(
+                f"KS trajectory {i} (nu={nu}) produced NaN/Inf in all 10 attempts"
+            )
         for s in range(0, len(traj) - total, 4):
             X_list.append(traj[s : s+seq_len])
             Y_list.append(traj[s+seq_len : s+seq_len+pred_steps])
