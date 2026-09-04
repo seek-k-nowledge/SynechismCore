@@ -175,6 +175,9 @@ def evaluate_model(
     Shape: (N, T, D). Pass to stats.compute_full_stats() for p-values.
 
     DataParallel-safe: eval mode propagates to all replicas automatically.
+
+    NaN/Inf protection: detects and replaces invalid values in predictions.
+    Warning printed if any found (must not silently hide the problem).
     """
     if device is None:
         device = DEVICE
@@ -199,4 +202,15 @@ def evaluate_model(
             all_preds.append(pred[:, :min_steps].numpy())
             all_true.append(yb[:, :min_steps].numpy())
 
-    return np.concatenate(all_preds), np.concatenate(all_true)
+    preds = np.concatenate(all_preds)
+    true_vals = np.concatenate(all_true)
+
+    # NaN/Inf protection: count invalid values
+    nan_count = np.isnan(preds).sum()
+    inf_count = np.isinf(preds).sum()
+
+    if nan_count > 0 or inf_count > 0:
+        print(f"⚠️  WARNING: {nan_count} NaN + {inf_count} Inf values in predictions, replacing with nan_to_num")
+        preds = np.nan_to_num(preds, nan=0.0, posinf=1e6, neginf=-1e6)
+
+    return preds, true_vals
