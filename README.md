@@ -74,7 +74,10 @@ Warning message ensures the problem is visible (not silent).
 2. **Wrong dt values** — hardcoded dt=0.25 for all non-Lorenz, but:
    - Weather (Lorenz96) should use dt=0.05 (was 5× wrong)
    - Robotics should use dt=0.02 (was 12.5× wrong)
-3. **Wrong system keys** — Finance and Robotics used default `lorenz63_rho28` Lyapunov exponent
+3. **Wrong system keys** — Robotics used default `lorenz63_rho28` Lyapunov exponent
+4. **Finance excluded from VPT** — Finance is a stochastic regime-switching system, not
+   deterministic chaos, so it has no valid Lyapunov exponent and VPT is meaningless.
+   Finance VPT reports "N/A", but MAE, nRMSE, and sMAPE are computed normally.
 
 **Data generator resilience** — Added P8-style retry-on-failure to `make_weather_dataset()`
 and `make_robotics_dataset()` in `src/data.py`:

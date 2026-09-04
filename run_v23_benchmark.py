@@ -135,20 +135,35 @@ def run_experiment(exp_name, variants, seeds, epochs, batch_size=512):
             elapsed = time.time() - t0
 
             # Chaotic metrics for SOTA comparison
-            sys_key = {'lorenz': 'lorenz63_rho28', 'ks_pde': 'ks_pde',
-                       'weather': 'lorenz96', 'finance': 'ks_pde',
-                       'robotics': 'lorenz96'}.get(exp_name, 'lorenz63_rho28')
-            dt_map = {'lorenz': 0.02, 'ks_pde': 0.25, 'finance': 0.01,
-                      'weather': 0.05, 'robotics': 0.02}
-            dt = dt_map.get(exp_name, 0.02)
-            cm = compute_chaotic_metrics(preds[0], trues[0],
-                                         system=sys_key, dt=dt)
+            # (Finance is stochastic regime-switching, not deterministic chaos — skip VPT)
+            if exp_name == 'finance':
+                cm = {
+                    'mae': float(np.abs(preds[0] - trues[0]).mean()),
+                    'vpt_lyap': float('nan'),
+                    'nrmse_1': float(np.sqrt(((preds[0][:1] - trues[0][:1]) ** 2).mean())),
+                    'nrmse_20': float(np.sqrt(((preds[0][min(19, len(preds[0])-1):min(20, len(preds[0]))] -
+                                               trues[0][min(19, len(trues[0])-1):min(20, len(trues[0]))]) ** 2).mean())),
+                    'smape_10': float(200.0 * np.mean(np.abs(preds[0][:min(10, len(preds[0]))] -
+                                                              trues[0][:min(10, len(trues[0]))]) /
+                                                      (np.abs(preds[0][:min(10, len(preds[0]))]) +
+                                                       np.abs(trues[0][:min(10, len(trues[0]))]) + 1e-8))),
+                    'system': 'finance_regime_switching',
+                    'lambda': float('nan'),
+                }
+            else:
+                sys_key = {'lorenz': 'lorenz63_rho28', 'ks_pde': 'ks_pde',
+                           'weather': 'lorenz96', 'robotics': 'lorenz96'}.get(exp_name, 'lorenz63_rho28')
+                dt_map = {'lorenz': 0.02, 'ks_pde': 0.25, 'weather': 0.05, 'robotics': 0.02}
+                dt = dt_map.get(exp_name, 0.02)
+                cm = compute_chaotic_metrics(preds[0], trues[0],
+                                             system=sys_key, dt=dt)
 
             seed_maes[v].append(mae)
             timing[v].append(elapsed)
             chaos_data[v].append(cm)
+            vpt_str = f"{cm['vpt_lyap']:.2f}TL" if not np.isnan(cm['vpt_lyap']) else "N/A"
             print(f"    {v:<22}  MAE={mae:.4f}  "
-                  f"VPT={cm['vpt_lyap']:.2f}TL  "
+                  f"VPT={vpt_str:<7}  "
                   f"nRMSE1={cm['nrmse_1']:.4f}  ({elapsed:.0f}s)")
 
     # Summary
@@ -164,12 +179,13 @@ def run_experiment(exp_name, variants, seeds, epochs, batch_size=512):
         arr  = np.array(seed_maes[v])
         mean, std = arr.mean(), arr.std()
         vs_tf = tf_mean / (mean + 1e-8)
-        mean_vpt = np.mean([c['vpt_lyap'] for c in chaos_data[v]])
+        mean_vpt = np.nanmean([c['vpt_lyap'] for c in chaos_data[v]])
         summary[v] = {'mean': mean, 'std': std, 'vs_tf': vs_tf,
                       'mean_vpt': mean_vpt, 'maes': seed_maes[v],
                       'chaos': chaos_data[v]}
+        vpt_print = f"{mean_vpt:.2f}" if not np.isnan(mean_vpt) else "N/A"
         print(f"  {v:<22}  {mean:>10.4f}  {std:>8.4f}  "
-              f"{vs_tf:>7.2f}×  {mean_vpt:>10.2f}")
+              f"{vs_tf:>7.2f}×  {vpt_print:>10}")
 
     # Significance: v23_full vs transformer
     if 'v23_full' in seed_maes and 'transformer' in seed_maes and len(seeds) > 1:
