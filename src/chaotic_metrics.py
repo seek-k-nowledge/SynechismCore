@@ -47,7 +47,7 @@ SOTA_REFERENCE = {
 def compute_vpt(predictions, ground_truth, dt, lyapunov_exponent,
                 threshold=0.4):
     T = min(len(predictions), len(ground_truth))
-    truth_std = ground_truth[:T].std(axis=0).mean()
+    truth_std = ground_truth[:T].std()
     if truth_std < 1e-8:
         truth_std = 1.0
     errors = np.sqrt(((predictions[:T] - ground_truth[:T]) ** 2

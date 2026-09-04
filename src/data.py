@@ -277,7 +277,18 @@ def make_weather_dataset(F_values, n_traj=30, seq_len=50, pred_steps=10,
 
     for F in F_values:
         for i in range(n_traj):
-            traj = generate_lorenz96(F, N=N, n_steps=3000, seed=seed+i*11)
+            # PATCH P11: retry Lorenz96 generation on NaN/Inf (numerical stability at extreme F)
+            traj = None
+            for attempt in range(10):
+                candidate = generate_lorenz96(F, N=N, n_steps=3000,
+                                            seed=seed + i*11 + attempt*100000)
+                if not (np.isnan(candidate).any() or np.isinf(candidate).any()):
+                    traj = candidate
+                    break
+            if traj is None:
+                raise RuntimeError(
+                    f"Weather trajectory {i} (F={F}) produced NaN/Inf in all 10 attempts"
+                )
             for s in range(0, len(traj) - total, 5):
                 X_list.append(traj[s:s+seq_len])
                 Y_list.append(traj[s+seq_len:s+seq_len+pred_steps])
@@ -332,7 +343,18 @@ def make_robotics_dataset(gamma=0.5, n_traj=150, seq_len=50, pred_steps=20, n_st
     total = seq_len + pred_steps
 
     for i in range(n_traj):
-        traj = generate_oscillator(gamma, n_steps=n_steps, seed=seed+i*13)
+        # PATCH P11: retry oscillator generation on NaN/Inf (defensive stability check)
+        traj = None
+        for attempt in range(10):
+            candidate = generate_oscillator(gamma, n_steps=n_steps,
+                                           seed=seed + i*13 + attempt*100000)
+            if not (np.isnan(candidate).any() or np.isinf(candidate).any()):
+                traj = candidate
+                break
+        if traj is None:
+            raise RuntimeError(
+                f"Robotics trajectory {i} (gamma={gamma}) produced NaN/Inf in all 10 attempts"
+            )
         # Normalize
         traj = (traj - traj.mean(axis=0)) / (traj.std(axis=0) + 1e-8)
         for s in range(0, len(traj) - total, 3):

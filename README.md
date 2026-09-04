@@ -26,9 +26,9 @@ cells in the paper's tables.
 
 ---
 
-## Six Patches Applied (v23.0 → v23.0.1)
+## Patches Applied (v23.0 → v23.0.1 + critical pre-run fixes)
 
-| # | File | Fix | Why |
+| # | File(s) | Fix | Why |
 |---|---|---|---|
 | P1 | src/v23_components.py | StiffnessDetector: added `super().__init__()` | Crash on `.to(device)` / DataParallel |
 | P2 | src/v23_components.py | LaminarBypass: dt-aware step `h + dt·map(h)` | Static map wrong with variable step sizes |
@@ -36,9 +36,14 @@ cells in the paper's tables.
 | P4 | src/v23_components.py | delta_r_net: Tanh→GELU, 16→32 units | Tanh saturates during rapid expansion |
 | P5 | launch_h100.py | `torch.set_float32_matmul_precision('high')` | 2-3× free speedup on H100 Tensor Cores |
 | P6 | run_v23_benchmark.py | `.detach()` in coherence context window | Prevents OOM at step ~20,000 |
+| P7 | run_v23_benchmark.py, run_phi_ablation.py | Parameter name mismatches (nu_train→nu, forcing→F_values, damping→gamma) | Would crash ks_pde/weather/robotics on launch |
+| P8 | src/data.py | KS-PDE: retry on NaN/Inf from solver overflow | Low viscosity (ν→0) causes exponential blowup |
+| P9 | src/train.py | evaluate_model: NaN/Inf detection + replacement | Predictions can contain invalid values from numerics |
+| P11 | src/chaotic_metrics.py, run_v23_benchmark.py, src/data.py | Fix VPT metric + data generator resilience | Critical: VPT was always 0 (3 bugs); generators need retry at extreme params |
 
-## Additional Fix (P7 — pre-GPU-run code review)
+## Additional Fixes (P7, P9, P11 — pre-GPU-run code review)
 
+### P7 — Parameter Name Mismatches
 Before this code ever touched a GPU, a review pass found that `run_v23_benchmark.py`
 and `run_phi_ablation.py` called the `data.py` dataset functions with keyword
 arguments that don't match their actual signatures. This would have crashed the
@@ -54,6 +59,29 @@ got as far as training). Fixed to match `data.py`'s real parameter names:
 
 `run_experiments.py` (the original v22 script) already called these correctly —
 the mismatch was only in the newer v23 runner scripts.
+
+### P9 — NaN/Inf Protection in evaluate_model
+Added explicit NaN/Inf detection in `src/train.py` `evaluate_model()`:
+after predictions gathered, count NaN/Inf values, print warning if found,
+replace with `np.nan_to_num(nan=0.0, posinf=1e6, neginf=-1e6)` before returning.
+Warning message ensures the problem is visible (not silent).
+
+### P11 — Data Generator Stability + VPT Metric Fixes
+**Critical metrics fix:** VPT (Valid Prediction Time) was broken due to three bugs:
+1. **Wrong normalization** — used `.std(axis=0).mean()` (spatial std) instead of global std
+   - For spatial PDEs, this produced tiny values, inflating normalized errors
+   - Result: all errors exceeded threshold at t=0, giving VPT=0.00 across all systems
+2. **Wrong dt values** — hardcoded dt=0.25 for all non-Lorenz, but:
+   - Weather (Lorenz96) should use dt=0.05 (was 5× wrong)
+   - Robotics should use dt=0.02 (was 12.5× wrong)
+3. **Wrong system keys** — Finance and Robotics used default `lorenz63_rho28` Lyapunov exponent
+
+**Data generator resilience** — Added P8-style retry-on-failure to `make_weather_dataset()`
+and `make_robotics_dataset()` in `src/data.py`:
+- At extreme test regimes (F=22 for weather, γ=0.05 for robotics), numerical errors could
+  accumulate or solvers could fail, producing NaN/Inf
+- Now retries up to 10 times with different random seeds before raising error
+- Consistent with P8 (KS-PDE) pattern for defensive robustness
 
 ---
 

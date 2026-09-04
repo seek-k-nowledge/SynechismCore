@@ -136,8 +136,11 @@ def run_experiment(exp_name, variants, seeds, epochs, batch_size=512):
 
             # Chaotic metrics for SOTA comparison
             sys_key = {'lorenz': 'lorenz63_rho28', 'ks_pde': 'ks_pde',
-                       'weather': 'lorenz96'}.get(exp_name, 'lorenz63_rho28')
-            dt = 0.02 if exp_name == 'lorenz' else 0.25
+                       'weather': 'lorenz96', 'finance': 'ks_pde',
+                       'robotics': 'lorenz96'}.get(exp_name, 'lorenz63_rho28')
+            dt_map = {'lorenz': 0.02, 'ks_pde': 0.25, 'finance': 0.01,
+                      'weather': 0.05, 'robotics': 0.02}
+            dt = dt_map.get(exp_name, 0.02)
             cm = compute_chaotic_metrics(preds[0], trues[0],
                                          system=sys_key, dt=dt)
 
