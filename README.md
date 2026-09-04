@@ -67,6 +67,15 @@ replace with `np.nan_to_num(nan=0.0, posinf=1e6, neginf=-1e6)` before returning.
 Warning message ensures the problem is visible (not silent).
 
 ### P11 — Data Generator Stability + VPT Metric Fixes
+
+**VPT Fix Verification Status:**
+- ✅ Lorenz (3D chaotic): **Real end-to-end test PASSED** — VPT metric computed from actual trained model
+- ✅ Synthetic data for all systems: **PASSED** — Logic verified (0.3622 TL with good predictions, 0.0000 with bad)
+- ⚠️  KS-PDE (64D spatial PDE): **Only tested synthetically** — CPU time constraints prevented real training test
+  - **RESIDUAL RISK:** KS-PDE was the primary system where VPT was broken (spatial std bug)
+  - **ACTION REQUIRED:** First GPU run should include quick KS-PDE check to verify VPT works on real trained model
+  - See `diagnostics/` folder for test scripts and analysis
+
 **Critical metrics fix:** VPT (Valid Prediction Time) was broken due to three bugs:
 1. **Wrong normalization** — used `.std(axis=0).mean()` (spatial std) instead of global std
    - For spatial PDEs, this produced tiny values, inflating normalized errors
