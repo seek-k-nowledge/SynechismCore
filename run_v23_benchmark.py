@@ -225,109 +225,183 @@ def run_experiment(exp_name, variants, seeds, epochs, batch_size=512):
     return summary
 
 
-def run_coherence_test(variants, max_steps=25000, seed=42):
+def run_coherence_test(variants, max_steps=1_000_000, seeds=None):
     """
     PATCH P6: .detach() added to context window update.
-    Prevents OOM accumulation across 25,000 iterations.
+    Prevents OOM accumulation across long iterations.
+
+    Safety ceiling is max_steps. If any (variant, seed) reaches it without
+    diverging (mae > 1.5 for 5+ consecutive windows), that result is flagged
+    for manual inspection (possible metric blind spot or model collapse).
     """
+    if seeds is None:
+        seeds = [42]
+
     from data import generate_lorenz63
 
     print(f"\n{'='*62}")
-    print(f"  COHERENCE TEST — {max_steps:,} steps  seed={seed}")
+    print(f"  COHERENCE TEST — {max_steps:,} steps  seeds={seeds}")
     print(f"  (P6 patch: .detach() in context window update)")
     print(f"{'='*62}")
 
-    set_seed(seed)
     rho = 28.0
     dt  = 0.02
-    traj = generate_lorenz63(rho, max_steps + 300, dt=dt,
-                              warmup=2000, seed=seed)
-    traj_t = torch.FloatTensor(traj[300:])
-    mu  = traj_t[:500].mean(0)
-    std = traj_t[:500].std(0).clamp(min=1e-6)
-    traj_norm = (traj_t - mu) / std
-
     seq_len, pred_steps = 50, 20
-    X_list, Y_list = [], []
-    for s in range(0, min(5000, len(traj_norm)) - seq_len - pred_steps, 3):
-        X_list.append(traj_norm[s:s + seq_len])
-        Y_list.append(traj_norm[s + seq_len:s + seq_len + pred_steps])
-    X_tr = torch.stack(X_list)
-    Y_tr = torch.stack(Y_list)
 
-    trained = {}
-    for v in variants:
-        print(f"\n  Training {v}...")
-        if v in V23_VARIANTS:
-            model = make_v23(v, 3, 3, hidden=128, pred_steps=pred_steps)
-        elif v == 'transformer':
-            model = FairTransformer(3, 3, 128, pred_steps)
-        elif v == 'lstm':
-            model = FairLSTM(3, 3, 128, pred_steps)
-        elif v == 'mamba':
-            model = FairMamba(3, 3, 128, pred_steps)
-        else:
-            model = make_synechism(v, 3, 3, hidden=128, pred_steps=pred_steps)
-        m = wrap(model)
-        train_model(m, X_tr, Y_tr, lr=1e-3, epochs=100,
-                    batch_size=64, verbose=False, device=DEVICE)
-        trained[v] = m
+    # Store results as list of dicts: (variant, seed, coherent_steps, stopped_reason, needs_manual_review)
+    all_results = []
+    per_variant_steps = {v: [] for v in variants}
 
-    results = {}
-    for v, model in trained.items():
-        model.eval()
-        context = traj_norm[:seq_len].unsqueeze(0).to(DEVICE)
-        coherent_steps = 0
-        bad_windows    = 0
-        step = 0
+    for seed in seeds:
+        print(f"\n  ── seed {seed} ──")
+        set_seed(seed)
 
-        with torch.no_grad():
-            while step < max_steps - pred_steps:
-                base = get_base_model(model)
-                if hasattr(base, 'ode_func') or hasattr(base, 'encoder'):
-                    pred, _, _ = model(context)
-                else:
-                    pred = model(context)
-                pred = pred[0]  # (pred_steps, 3)
+        # Generate trajectory for this seed
+        traj = generate_lorenz63(rho, max_steps + 300, dt=dt,
+                                  warmup=2000, seed=seed)
+        traj_t = torch.FloatTensor(traj[300:])
+        mu  = traj_t[:500].mean(0)
+        std = traj_t[:500].std(0).clamp(min=1e-6)
+        traj_norm = (traj_t - mu) / std
 
-                gt_start = seq_len + step
-                gt_end   = gt_start + pred_steps
-                if gt_end >= len(traj_norm):
-                    break
-                gt  = traj_norm[gt_start:gt_end].to(DEVICE)
-                mae = (pred - gt).abs().mean().item()
+        # Build training data
+        X_list, Y_list = [], []
+        for s in range(0, min(5000, len(traj_norm)) - seq_len - pred_steps, 3):
+            X_list.append(traj_norm[s:s + seq_len])
+            Y_list.append(traj_norm[s + seq_len:s + seq_len + pred_steps])
+        X_tr = torch.stack(X_list)
+        Y_tr = torch.stack(Y_list)
 
-                if mae > 1.5:
-                    bad_windows += 1
-                    if bad_windows >= 5:
+        # Train all variants on this seed's data
+        trained = {}
+        for v in variants:
+            if v in V23_VARIANTS:
+                model = make_v23(v, 3, 3, hidden=128, pred_steps=pred_steps)
+            elif v == 'transformer':
+                model = FairTransformer(3, 3, 128, pred_steps)
+            elif v == 'lstm':
+                model = FairLSTM(3, 3, 128, pred_steps)
+            elif v == 'mamba':
+                model = FairMamba(3, 3, 128, pred_steps)
+            else:
+                model = make_synechism(v, 3, 3, hidden=128, pred_steps=pred_steps)
+            m = wrap(model)
+            train_model(m, X_tr, Y_tr, lr=1e-3, epochs=100,
+                        batch_size=64, verbose=False, device=DEVICE)
+            trained[v] = m
+
+        # Run coherence test for each variant
+        for v, model in trained.items():
+            model.eval()
+            context = traj_norm[:seq_len].unsqueeze(0).to(DEVICE)
+            coherent_steps = 0
+            bad_windows    = 0
+            step = 0
+            stopped_reason = None
+            step_start_time = time.time()
+
+            with torch.no_grad():
+                while step < max_steps - pred_steps:
+                    base = get_base_model(model)
+                    if hasattr(base, 'ode_func') or hasattr(base, 'encoder'):
+                        pred, _, _ = model(context)
+                    else:
+                        pred = model(context)
+                    pred = pred[0]  # (pred_steps, 3)
+
+                    gt_start = seq_len + step
+                    gt_end   = gt_start + pred_steps
+                    if gt_end >= len(traj_norm):
                         break
-                else:
-                    bad_windows = 0
+                    gt  = traj_norm[gt_start:gt_end].to(DEVICE)
+                    mae = (pred - gt).abs().mean().item()
 
-                coherent_steps += pred_steps
-                step           += pred_steps
+                    if mae > 1.5:
+                        bad_windows += 1
+                        if bad_windows >= 5:
+                            stopped_reason = "diverged"
+                            break
+                    else:
+                        bad_windows = 0
 
-                # PATCH P6: .detach() prevents OOM at step ~20,000
-                context = torch.cat([
-                    context[:, pred_steps:, :],
-                    pred.unsqueeze(0).clamp(-10, 10).detach()  # PATCH P6
-                ], dim=1)
+                    coherent_steps += pred_steps
+                    step           += pred_steps
 
-        results[v] = coherent_steps
-        mark = "🏆" if coherent_steps >= 19940 else "✅" if coherent_steps > 5000 else "⚠️"
-        print(f"  {mark} {v:<22}  {coherent_steps:>8,} steps")
+                    # PATCH P6: .detach() prevents OOM at step ~20,000
+                    context = torch.cat([
+                        context[:, pred_steps:, :],
+                        pred.unsqueeze(0).clamp(-10, 10).detach()  # PATCH P6
+                    ], dim=1)
 
-    print(f"\n  {'Variant':<22}  {'Steps':>8}  {'vs LSTM':>8}")
-    lstm_steps = results.get('lstm', max(results.values(), default=1))
-    for v, s in sorted(results.items(), key=lambda x: -x[1]):
-        print(f"  {v:<22}  {s:>8,}  {s / max(lstm_steps, 1):>7.1f}×")
+                    # Progress report every 1,000 steps
+                    if step % 1000 == 0:
+                        elapsed = time.time() - step_start_time
+                        rate = step / max(elapsed, 0.1)
+                        print(f"      step {step:>7,}/{max_steps:,} — {elapsed:>6.0f}s elapsed — {rate:>6.0f} steps/sec")
 
-    os.makedirs('./results/fresh_run', exist_ok=True)
-    with open('./results/fresh_run/coherence_test.json', 'w') as f:
-        json.dump({'rho': rho, 'max_steps': max_steps,
-                   'seed': seed, 'results': results}, f, indent=2)
-    print("\n  Saved: ./results/fresh_run/coherence_test.json")
-    return results
+                # If loop exited normally without diverging, we hit max_steps ceiling
+                if stopped_reason is None:
+                    stopped_reason = "max_steps_reached"
+
+            needs_review = (stopped_reason == "max_steps_reached")
+            mark = "🏆" if coherent_steps >= 19940 else "✅" if coherent_steps > 5000 else "⚠️"
+            if needs_review:
+                mark = "⚠️🔍"
+            print(f"    {mark} {v:<20}  {coherent_steps:>8,} steps  ({stopped_reason})")
+
+            all_results.append({
+                'variant': v,
+                'seed': seed,
+                'coherent_steps': coherent_steps,
+                'stopped_reason': stopped_reason,
+                'needs_manual_review': needs_review
+            })
+            per_variant_steps[v].append((coherent_steps, needs_review))
+
+    # Summary table: per-variant stats across all seeds
+    # Separate normal results from those needing manual review
+    normal_steps = {v: [s for s, review in per_variant_steps[v] if not review]
+                    for v in variants}
+    review_steps = {v: [(seeds[i], s) for i, (s, review) in enumerate(per_variant_steps[v]) if review]
+                    for v in variants}
+
+    print(f"\n  {'Variant':<22}  {'Mean Steps':>12}  {'Std':>10}  {'Min':>10}  {'Max':>10}")
+    print(f"  {'─'*22}  {'─'*12}  {'─'*10}  {'─'*10}  {'─'*10}")
+
+    summary = {}
+    for v in variants:
+        if normal_steps[v]:
+            arr = np.array(normal_steps[v])
+            mean, std = arr.mean(), arr.std()
+            min_val, max_val = arr.min(), arr.max()
+            summary[v] = {'mean': float(mean), 'std': float(std),
+                         'min': int(min_val), 'max': int(max_val)}
+            print(f"  {v:<22}  {mean:>12.0f}  {std:>10.1f}  {min_val:>10}  {max_val:>10}")
+
+    # Separately list any results that hit the ceiling (need manual review)
+    has_review_cases = any(review_steps.values())
+    if has_review_cases:
+        print(f"\n  ⚠️  Results flagged for manual review (hit --max-steps ceiling):")
+        print(f"  {'Variant':<22}  {'Seed':>6}  {'Steps':>10}")
+        print(f"  {'─'*22}  {'─'*6}  {'─'*10}")
+        for v in variants:
+            for seed_val, s in review_steps[v]:
+                print(f"  {v:<22}  {seed_val:>6}  {s:>10,}  ← verify: real coherence or metric blind spot?")
+
+    # Save results: both individual (variant, seed) records and summary
+    os.makedirs('./results/coherence', exist_ok=True)
+    with open('./results/coherence/coherence_results.json', 'w') as f:
+        json.dump({
+            'rho': rho,
+            'max_steps': max_steps,
+            'seeds': seeds,
+            'individual_results': all_results,
+            'summary': summary,
+            'note': 'Results with needs_manual_review=true hit the --max-steps ceiling; '
+                    'verify they are genuinely coherent, not metric blind spots.'
+        }, f, indent=2)
+    print(f"\n  Saved: ./results/coherence/coherence_results.json")
+    return all_results, summary
 
 
 if __name__ == '__main__':
@@ -345,7 +419,7 @@ if __name__ == '__main__':
                         help='1 seed, 30 epochs')
     parser.add_argument('--coherence', action='store_true',
                         help='Run coherence rollout test (25k steps)')
-    parser.add_argument('--max-steps', type=int, default=25000)
+    parser.add_argument('--max-steps', type=int, default=1_000_000)
     args = parser.parse_args()
 
     if args.quick:
@@ -356,7 +430,7 @@ if __name__ == '__main__':
     print(f"Device: {DEVICE}  GPUs: {N_GPU}")
 
     if args.coherence:
-        run_coherence_test(args.variants, args.max_steps, seed=args.seeds[0])
+        run_coherence_test(args.variants, args.max_steps, seeds=args.seeds)
     else:
         for exp in args.experiment:
             run_experiment(exp, args.variants, args.seeds, args.epochs)
