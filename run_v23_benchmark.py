@@ -300,6 +300,11 @@ def run_coherence_test(variants, max_steps=1_000_000, seeds=None):
             stopped_reason = None
             step_start_time = time.time()
 
+            # Collect trajectories for inspection (seed 0 only, select variants)
+            save_trajectory = (seed == 0 and v in ['v23_hybrid', 'transformer', 'lstm'])
+            pred_trajectory = []
+            gt_trajectory = []
+
             with torch.no_grad():
                 while step < max_steps - pred_steps:
                     base = get_base_model(model)
@@ -315,6 +320,11 @@ def run_coherence_test(variants, max_steps=1_000_000, seeds=None):
                         break
                     gt  = traj_norm[gt_start:gt_end].to(DEVICE)
                     mae = (pred - gt).abs().mean().item()
+
+                    # Collect trajectory data for inspection
+                    if save_trajectory:
+                        pred_trajectory.append(pred.detach().cpu().numpy())
+                        gt_trajectory.append(gt.detach().cpu().numpy())
 
                     if mae > 1.5:
                         bad_windows += 1
@@ -342,6 +352,15 @@ def run_coherence_test(variants, max_steps=1_000_000, seeds=None):
                 # If loop exited normally without diverging, we hit max_steps ceiling
                 if stopped_reason is None:
                     stopped_reason = "max_steps_reached"
+
+            # Save trajectories for manual inspection (seed 0 only, select variants)
+            if save_trajectory and pred_trajectory:
+                os.makedirs('./results/coherence', exist_ok=True)
+                pred_array = np.concatenate(pred_trajectory, axis=0)
+                gt_array = np.concatenate(gt_trajectory, axis=0)
+                save_path = f'./results/coherence/trajectory_debug_{v}_seed0.npz'
+                np.savez(save_path, predicted=pred_array, ground_truth=gt_array,
+                         coherent_steps=coherent_steps, stopped_reason=stopped_reason)
 
             needs_review = (stopped_reason == "max_steps_reached")
             mark = "🏆" if coherent_steps >= 19940 else "✅" if coherent_steps > 5000 else "⚠️"
