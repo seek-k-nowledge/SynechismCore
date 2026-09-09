@@ -17,7 +17,7 @@ Usage:
     python run_v23_benchmark.py --experiment ks_pde --seeds 0 1 2 3 4 5 6 7 8 9
 """
 
-import os, sys, json, time, argparse
+import os, sys, json, time, gc, argparse
 import numpy as np
 import torch
 import torch.nn as nn
@@ -237,6 +237,16 @@ def run_coherence_test(variants, max_steps=1_000_000, seeds=None):
     if seeds is None:
         seeds = [42]
 
+    # Force deterministic CUDA kernels so "same seed" actually reproduces the
+    # same trained weights and the same autoregressive rollout. Without this,
+    # cuDNN algorithm selection and non-deterministic reductions introduce
+    # tiny floating-point differences that get exponentially amplified by
+    # the chaotic dynamics in this test. Scoped here (not in set_seed()) so
+    # it only affects the coherence test, not the regular benchmark runs.
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    torch.use_deterministic_algorithms(True, warn_only=True)
+
     from data import generate_lorenz63
 
     print(f"\n{'='*62}")
@@ -291,7 +301,12 @@ def run_coherence_test(variants, max_steps=1_000_000, seeds=None):
             trained[v] = m
 
         # Run coherence test for each variant
-        for v, model in trained.items():
+        # NOTE: iterate over a snapshot of keys (not .items()) so each
+        # variant's model can be deleted from `trained` immediately after
+        # its rollout finishes, rather than staying resident on the GPU
+        # for the rest of the loop.
+        for v in list(trained.keys()):
+            model = trained[v]
             model.eval()
             context = traj_norm[:seq_len].unsqueeze(0).to(DEVICE)
             coherent_steps = 0
@@ -376,6 +391,17 @@ def run_coherence_test(variants, max_steps=1_000_000, seeds=None):
                 'needs_manual_review': needs_review
             })
             per_variant_steps[v].append((coherent_steps, needs_review))
+
+            # GPU memory cleanup: release this variant's model before the next one starts.
+            # Without this, every variant's model for the current seed stays resident on
+            # the GPU for the entire coherence loop (up to max_steps each), so memory
+            # builds up variant-over-variant and seed-over-seed with no error until the
+            # process is killed (often silently, with no Python-level traceback).
+            del trained[v]
+            del model
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
     # Summary table: per-variant stats across all seeds
     # Separate normal results from those needing manual review
