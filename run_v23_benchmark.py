@@ -17,7 +17,10 @@ Usage:
     python run_v23_benchmark.py --experiment ks_pde --seeds 0 1 2 3 4 5 6 7 8 9
 """
 
-import os, sys, json, time, gc, argparse
+import os
+os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
+
+import sys, json, time, gc, argparse
 import numpy as np
 import torch
 import torch.nn as nn
