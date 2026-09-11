@@ -319,7 +319,7 @@ def run_coherence_test(variants, max_steps=1_000_000, seeds=None):
             step_start_time = time.time()
 
             # Collect trajectories for inspection (seed 0 only, select variants)
-            save_trajectory = (seed == 0 and v in ['v23_hybrid', 'transformer', 'lstm'])
+            save_trajectory = (seed == 0 and v in ['v22_baseline', 'v23_full', 'v23_hybrid', 'lstm'])
             pred_trajectory = []
             gt_trajectory = []
 
