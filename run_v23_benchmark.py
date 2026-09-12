@@ -128,7 +128,8 @@ def run_experiment(exp_name, variants, seeds, epochs, batch_size=512):
         system = exp_name if exp_name in ('ks_pde', 'weather') else 'lorenz63_rho28'
         models = build_models(variants, in_dim, system=system)
 
-        for v, model in models.items():
+        for v in list(models.keys()):
+            model = models[v]
             t0 = time.time()
             m  = wrap(model)
             train_model(m, X_tr, Y_tr, lr=LRS.get(v, 1e-3), epochs=epochs,
@@ -164,6 +165,15 @@ def run_experiment(exp_name, variants, seeds, epochs, batch_size=512):
             seed_maes[v].append(mae)
             timing[v].append(elapsed)
             chaos_data[v].append(cm)
+
+            # GPU memory cleanup: release this variant's model before the next one starts
+            del models[v]
+            del m
+            del model
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
             vpt_str = f"{cm['vpt_lyap']:.2f}TL" if not np.isnan(cm['vpt_lyap']) else "N/A"
             print(f"    {v:<22}  MAE={mae:.4f}  "
                   f"VPT={vpt_str:<7}  "
@@ -482,3 +492,6 @@ if __name__ == '__main__':
     else:
         for exp in args.experiment:
             run_experiment(exp, args.variants, args.seeds, args.epochs)
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
