@@ -21,6 +21,7 @@ import os
 os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
 
 import sys, json, time, gc, argparse
+from collections import deque
 import numpy as np
 import torch
 import torch.nn as nn
@@ -244,11 +245,38 @@ def run_coherence_test(variants, max_steps=1_000_000, seeds=None):
     Prevents OOM accumulation across long iterations.
 
     Safety ceiling is max_steps. If any (variant, seed) reaches it without
-    diverging (mae > 1.5 for 5+ consecutive windows), that result is flagged
-    for manual inspection (possible metric blind spot or model collapse).
+    diverging, that result is flagged for manual inspection (possible metric
+    blind spot or model collapse).
+
+    Divergence criterion (replaces old flat "mae > 1.5 for 5 consecutive
+    windows" rule, which two problems confirmed was unreliable):
+      - Per-window error is normalized by that window's ground-truth std,
+        reusing the exact normalization compute_vpt() uses in
+        chaotic_metrics.py (RMSE / truth_std, threshold=0.4) instead of a
+        flat absolute MAE cutoff that isn't calibrated to the system's
+        natural scale.
+      - "Diverged" now requires the FRACTION of bad windows within a
+        rolling window of the last DIVERGENCE_WINDOW_SIZE windows to exceed
+        DIVERGENCE_FRACTION_THRESHOLD, instead of a lucky streak of 5
+        consecutive bad windows in a row (measured to occur by chance
+        alone, independent of real divergence).
     """
     if seeds is None:
         seeds = [42]
+
+    # Divergence criterion tuning (see docstring above).
+    # VPT_NORM_THRESHOLD reuses compute_vpt()'s default `threshold=0.4` in
+    # chaotic_metrics.py, applied to the same RMSE/truth_std normalization,
+    # rather than inventing a new cutoff for a differently-scaled quantity.
+    VPT_NORM_THRESHOLD = 0.4
+    # Rolling window size (within the 15-25 range) and bad-fraction cutoff.
+    # Measured chance-level single-window "bad" rate was ~25%; 50% is double
+    # that and, for a window of 20 independent draws at p=0.25, sits ~2.6
+    # standard deviations above the chance-level mean (binomial: mean=5,
+    # std=1.94 bad windows out of 20) - comfortably out of chance-oscillation
+    # range while still reachable by a genuinely diverged model.
+    DIVERGENCE_WINDOW_SIZE = 20
+    DIVERGENCE_FRACTION_THRESHOLD = 0.5
 
     # Force deterministic CUDA kernels so "same seed" actually reproduces the
     # same trained weights and the same autoregressive rollout. Without this,
@@ -323,7 +351,7 @@ def run_coherence_test(variants, max_steps=1_000_000, seeds=None):
             model.eval()
             context = traj_norm[:seq_len].unsqueeze(0).to(DEVICE)
             coherent_steps = 0
-            bad_windows    = 0
+            recent_windows = deque(maxlen=DIVERGENCE_WINDOW_SIZE)
             step = 0
             stopped_reason = None
             step_start_time = time.time()
@@ -347,20 +375,26 @@ def run_coherence_test(variants, max_steps=1_000_000, seeds=None):
                     if gt_end >= len(traj_norm):
                         break
                     gt  = traj_norm[gt_start:gt_end].to(DEVICE)
-                    mae = (pred - gt).abs().mean().item()
+
+                    # Normalized error: same approach as compute_vpt() in
+                    # chaotic_metrics.py - RMSE divided by this window's
+                    # ground-truth std, instead of a flat absolute MAE
+                    # threshold that isn't calibrated to the system's scale.
+                    window_std = gt.std().item()
+                    if window_std < 1e-8:
+                        window_std = 1.0
+                    normalized_error = torch.sqrt(((pred - gt) ** 2).mean()).item() / window_std
 
                     # Collect trajectory data for inspection
                     if save_trajectory:
                         pred_trajectory.append(pred.detach().cpu().numpy())
                         gt_trajectory.append(gt.detach().cpu().numpy())
 
-                    if mae > 1.5:
-                        bad_windows += 1
-                        if bad_windows >= 5:
-                            stopped_reason = "diverged"
-                            break
-                    else:
-                        bad_windows = 0
+                    recent_windows.append(normalized_error > VPT_NORM_THRESHOLD)
+                    if (len(recent_windows) == DIVERGENCE_WINDOW_SIZE and
+                            sum(recent_windows) / DIVERGENCE_WINDOW_SIZE > DIVERGENCE_FRACTION_THRESHOLD):
+                        stopped_reason = "diverged"
+                        break
 
                     coherent_steps += pred_steps
                     step           += pred_steps
