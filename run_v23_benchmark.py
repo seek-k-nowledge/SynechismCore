@@ -33,7 +33,8 @@ from data import (make_lorenz_dataset, make_ks_dataset,
                   make_finance_dataset, make_weather_dataset,
                   make_robotics_dataset)
 from models import FairTransformer, FairLSTM, FairMamba, make_synechism
-from train import train_model, evaluate_model, get_base_model
+from train import (train_model, evaluate_model, get_base_model,
+                   train_model_with_periodic_correction)
 from stats import compute_full_stats
 from v23_components import make_v23
 from chaotic_metrics import compute_chaotic_metrics, print_sota_comparison
@@ -496,6 +497,318 @@ def run_coherence_test(variants, max_steps=1_000_000, seeds=None):
     return all_results, summary
 
 
+def run_coherence_test_with_correction(max_steps=1_000_000, seeds=None,
+                                        correction_interval=40, fixed_c=0.8,
+                                        lookahead_steps=20, gate_train_epochs=100):
+    """
+    NEW, ADDITIONAL coherence test mode: periodic real-data correction.
+    Does NOT modify run_coherence_test() above in any way - this is a
+    separate function, duplicating its boilerplate deliberately (per
+    review decision) rather than factoring out shared helpers, so there
+    is zero risk of this new experiment disturbing the already-verified
+    zero-correction test.
+
+    Compares four conditions, matching Fan et al. (2020)'s reservoir-
+    computing periodic-correction cadence (~40 steps) against a new
+    learned-gate alternative:
+      - v23_hybrid_zero    — no correction ever (existing behavior,
+                              re-run here on the SAME trained weights used
+                              for v23_hybrid_fixed, so the only difference
+                              between those two conditions is the
+                              correction strategy, not a different
+                              training run)
+      - v23_hybrid_fixed   — fixed-schedule correction, c=fixed_c
+                              (Fan et al. baseline replication)
+      - v23_hybrid_gated   — learned CorrectionGate, trained via
+                              train_model_with_periodic_correction()
+                              (the new contribution)
+      - v22_baseline_fixed — outside reference: fixed-schedule correction
+                              on the plain v22 architecture, to gauge how
+                              much periodic correction helps independent
+                              of the v23 components
+
+    Divergence is measured against each window's RAW, pre-correction
+    prediction (confirmed design decision) - so periodic correction
+    can't mask genuine model failure in the reported "coherent steps"
+    metric. The correction only affects what gets fed forward as context
+    for the next window, never what the divergence check compares.
+
+    Correction only touches the LAST timestep of a window when that
+    window's end lands on a correction_interval boundary (e.g. every
+    2nd window at pred_steps=20, correction_interval=40) - the other
+    pred_steps-1 positions in that window are always the model's raw,
+    uncorrected prediction.
+    """
+    if seeds is None:
+        seeds = [42]
+
+    VPT_NORM_THRESHOLD = 0.4
+    DIVERGENCE_WINDOW_SIZE = 20
+    DIVERGENCE_FRACTION_THRESHOLD = 0.5
+
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    torch.use_deterministic_algorithms(True, warn_only=True)
+
+    from data import generate_lorenz63
+
+    print(f"\n{'='*62}")
+    print(f"  COHERENCE TEST WITH PERIODIC CORRECTION — {max_steps:,} steps")
+    print(f"  seeds={seeds}  correction_interval={correction_interval}  fixed_c={fixed_c}")
+    print(f"{'='*62}")
+
+    rho = 28.0
+    dt  = 0.02
+    seq_len, pred_steps = 50, 20
+
+    CONDITIONS = [
+        {'name': 'v23_hybrid_zero',    'base_variant': 'v23_hybrid',       'correction_mode': 'zero'},
+        {'name': 'v23_hybrid_fixed',   'base_variant': 'v23_hybrid',       'correction_mode': 'fixed'},
+        {'name': 'v23_hybrid_gated',   'base_variant': 'v23_hybrid_gated', 'correction_mode': 'gated'},
+        {'name': 'v22_baseline_fixed', 'base_variant': 'v22_baseline',     'correction_mode': 'fixed'},
+    ]
+    base_variants = sorted(set(c['base_variant'] for c in CONDITIONS))
+    uses_remaining = {bv: sum(1 for c in CONDITIONS if c['base_variant'] == bv)
+                      for bv in base_variants}
+
+    all_results = []
+    per_condition_steps = {c['name']: [] for c in CONDITIONS}
+
+    for seed in seeds:
+        print(f"\n  ── seed {seed} ──")
+        set_seed(seed)
+
+        traj = generate_lorenz63(rho, max_steps + 300, dt=dt,
+                                  warmup=2000, seed=seed)
+        traj_t = torch.FloatTensor(traj[300:])
+        mu  = traj_t[:500].mean(0)
+        std = traj_t[:500].std(0).clamp(min=1e-6)
+        traj_norm = (traj_t - mu) / std
+
+        X_list, Y_list = [], []
+        for s in range(0, min(5000, len(traj_norm)) - seq_len - pred_steps, 3):
+            X_list.append(traj_norm[s:s + seq_len])
+            Y_list.append(traj_norm[s + seq_len:s + seq_len + pred_steps])
+        X_tr = torch.stack(X_list)
+        Y_tr = torch.stack(Y_list)
+
+        remaining = dict(uses_remaining)
+        trained_bases = {}
+
+        # Process 'v23_hybrid' before 'v23_hybrid_gated' explicitly (not
+        # relying on incidental alphabetical ordering) - v23_hybrid_gated
+        # needs v23_hybrid's already-trained weights below.
+        ordered_variants = [bv for bv in base_variants if bv != 'v23_hybrid_gated']
+        if 'v23_hybrid_gated' in base_variants:
+            ordered_variants.append('v23_hybrid_gated')
+
+        for bv in ordered_variants:
+            model = make_v23(bv, 3, 3, hidden=128, pred_steps=pred_steps)
+
+            if bv == 'v23_hybrid_gated':
+                # Start from v23_hybrid's exact trained weights (same seed),
+                # not from scratch - isolates the correction strategy as the
+                # ONLY difference between v23_hybrid_fixed/zero and
+                # v23_hybrid_gated. strict=False because v23_hybrid_gated
+                # has one extra module (correction_gate) that v23_hybrid's
+                # state dict has no entry for.
+                base_hybrid = get_base_model(trained_bases['v23_hybrid'])
+                model.load_state_dict(base_hybrid.state_dict(), strict=False)
+
+                # Freeze everything except correction_gate - only the gate
+                # itself should learn from train_model_with_periodic_correction().
+                # This is what actually isolates the comparison: the base
+                # model's dynamics stay bit-for-bit the ones v23_hybrid
+                # already trained, so any difference vs v23_hybrid_fixed is
+                # attributable to the correction strategy alone.
+                for param_name, param in model.named_parameters():
+                    param.requires_grad = param_name.startswith('correction_gate.')
+
+            m = wrap(model)
+            if bv == 'v23_hybrid_gated':
+                train_model_with_periodic_correction(
+                    m, traj_norm[:5000], seq_len=seq_len, pred_steps=pred_steps,
+                    lookahead_steps=lookahead_steps, epochs=gate_train_epochs,
+                    batch_size=64, verbose=False, device=DEVICE, name=bv,
+                )
+            else:
+                train_model(m, X_tr, Y_tr, lr=1e-3, epochs=100,
+                            batch_size=64, verbose=False, device=DEVICE)
+            trained_bases[bv] = m
+
+        for cond in CONDITIONS:
+            name  = cond['name']
+            mode  = cond['correction_mode']
+            model = trained_bases[cond['base_variant']]
+            base  = get_base_model(model)
+            model.eval()
+
+            context = traj_norm[:seq_len].unsqueeze(0).to(DEVICE)
+            coherent_steps = 0
+            recent_windows = deque(maxlen=DIVERGENCE_WINDOW_SIZE)
+            step = 0
+            stopped_reason = None
+            step_start_time = time.time()
+
+            save_trajectory = (seed == 0)
+            pred_trajectory, gt_trajectory = [], []
+            correction_flags, gate_values = [], []
+
+            with torch.no_grad():
+                while step < max_steps - pred_steps:
+                    # forward_with_states() is called on the unwrapped base
+                    # module directly (see train_model_with_periodic_correction's
+                    # docstring for why - DataParallel only dispatches .forward()).
+                    pred, _, _, h_traj = base.forward_with_states(context)
+                    pred   = pred[0]        # (pred_steps, 3)
+                    h_traj = h_traj[:, 0, :]  # (pred_steps, hidden)
+
+                    gt_start = seq_len + step
+                    gt_end   = gt_start + pred_steps
+                    if gt_end >= len(traj_norm):
+                        break
+                    gt = traj_norm[gt_start:gt_end].to(DEVICE)
+
+                    # Divergence check on the RAW, pre-correction prediction -
+                    # confirmed design decision, so correction can't mask
+                    # genuine model failure in this metric.
+                    window_std = gt.std().item()
+                    if window_std < 1e-8:
+                        window_std = 1.0
+                    normalized_error = torch.sqrt(((pred - gt) ** 2).mean()).item() / window_std
+
+                    recent_windows.append(normalized_error > VPT_NORM_THRESHOLD)
+                    if (len(recent_windows) == DIVERGENCE_WINDOW_SIZE and
+                            sum(recent_windows) / DIVERGENCE_WINDOW_SIZE > DIVERGENCE_FRACTION_THRESHOLD):
+                        stopped_reason = "diverged"
+                        break
+
+                    coherent_steps += pred_steps
+                    step           += pred_steps
+
+                    # Correction only touches the LAST timestep of this
+                    # window, only when its end lands on a correction
+                    # boundary, and only for non-zero correction modes.
+                    next_window = pred.clone()
+                    is_correction_step = (mode != 'zero' and step % correction_interval == 0)
+                    gate_val = float('nan')
+                    if is_correction_step:
+                        last_pred   = pred[-1]
+                        last_real   = gt[-1]
+                        discrepancy = last_real - last_pred
+                        if mode == 'fixed':
+                            gate_val = fixed_c
+                        elif mode == 'gated':
+                            h_last = h_traj[-1].unsqueeze(0)
+                            disc_b = discrepancy.unsqueeze(0)
+                            gate_val = base.correction_gate(h_last, disc_b).item()
+                        next_window[-1] = last_pred + gate_val * discrepancy
+
+                    if save_trajectory:
+                        pred_trajectory.append(pred.detach().cpu().numpy())
+                        gt_trajectory.append(gt.detach().cpu().numpy())
+                        correction_flags.append(bool(is_correction_step))
+                        gate_values.append(gate_val)
+
+                    context = torch.cat([
+                        context[:, pred_steps:, :],
+                        next_window.unsqueeze(0).clamp(-10, 10).detach()
+                    ], dim=1)
+
+                    if step % 1000 == 0:
+                        elapsed = time.time() - step_start_time
+                        rate = step / max(elapsed, 0.1)
+                        print(f"      [{name}] step {step:>7,}/{max_steps:,} — "
+                              f"{elapsed:>6.0f}s elapsed — {rate:>6.0f} steps/sec")
+
+                if stopped_reason is None:
+                    stopped_reason = "max_steps_reached"
+
+            if save_trajectory and pred_trajectory:
+                os.makedirs('./results/coherence', exist_ok=True)
+                np.savez(
+                    f'./results/coherence/trajectory_debug_correction_{name}_seed0.npz',
+                    predicted=np.concatenate(pred_trajectory, axis=0),
+                    ground_truth=np.concatenate(gt_trajectory, axis=0),
+                    correction_flags=np.array(correction_flags),
+                    gate_values=np.array(gate_values),
+                    coherent_steps=coherent_steps, stopped_reason=stopped_reason,
+                )
+
+            needs_review = (stopped_reason == "max_steps_reached")
+            mark = "🏆" if coherent_steps >= 19940 else "✅" if coherent_steps > 5000 else "⚠️"
+            if needs_review:
+                mark = "⚠️🔍"
+            print(f"    {mark} {name:<20}  {coherent_steps:>8,} steps  ({stopped_reason})")
+
+            all_results.append({
+                'condition': name,
+                'base_variant': cond['base_variant'],
+                'correction_mode': mode,
+                'seed': seed,
+                'coherent_steps': coherent_steps,
+                'stopped_reason': stopped_reason,
+                'needs_manual_review': needs_review,
+            })
+            per_condition_steps[name].append((coherent_steps, needs_review))
+
+            # GPU cleanup only once every condition sharing this base
+            # variant (v23_hybrid is reused by both the zero and fixed
+            # conditions) has finished its rollout.
+            bv = cond['base_variant']
+            remaining[bv] -= 1
+            if remaining[bv] == 0:
+                del trained_bases[bv]
+                del model
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+
+    normal_steps = {n: [s for s, review in per_condition_steps[n] if not review]
+                    for n in per_condition_steps}
+    review_steps = {n: [(seeds[i], s) for i, (s, review) in enumerate(per_condition_steps[n]) if review]
+                    for n in per_condition_steps}
+
+    print(f"\n  {'Condition':<22}  {'Mean Steps':>12}  {'Std':>10}  {'Min':>10}  {'Max':>10}")
+    print(f"  {'─'*22}  {'─'*12}  {'─'*10}  {'─'*10}  {'─'*10}")
+
+    summary = {}
+    for name in per_condition_steps:
+        if normal_steps[name]:
+            arr = np.array(normal_steps[name])
+            mean, std = arr.mean(), arr.std()
+            min_val, max_val = arr.min(), arr.max()
+            summary[name] = {'mean': float(mean), 'std': float(std),
+                             'min': int(min_val), 'max': int(max_val)}
+            print(f"  {name:<22}  {mean:>12.0f}  {std:>10.1f}  {min_val:>10}  {max_val:>10}")
+
+    has_review_cases = any(review_steps.values())
+    if has_review_cases:
+        print(f"\n  ⚠️  Results flagged for manual review (hit --max-steps ceiling):")
+        print(f"  {'Condition':<22}  {'Seed':>6}  {'Steps':>10}")
+        print(f"  {'─'*22}  {'─'*6}  {'─'*10}")
+        for name in per_condition_steps:
+            for seed_val, s in review_steps[name]:
+                print(f"  {name:<22}  {seed_val:>6}  {s:>10,}  ← verify: real coherence or metric blind spot?")
+
+    os.makedirs('./results/coherence', exist_ok=True)
+    with open('./results/coherence/coherence_correction_results.json', 'w') as f:
+        json.dump({
+            'rho': rho,
+            'max_steps': max_steps,
+            'seeds': seeds,
+            'correction_interval': correction_interval,
+            'fixed_c': fixed_c,
+            'lookahead_steps': lookahead_steps,
+            'individual_results': all_results,
+            'summary': summary,
+            'note': 'Results with needs_manual_review=true hit the --max-steps ceiling; '
+                    'verify they are genuinely coherent, not metric blind spots.'
+        }, f, indent=2)
+    print(f"\n  Saved: ./results/coherence/coherence_correction_results.json")
+    return all_results, summary
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--experiment', nargs='+',
@@ -511,7 +824,16 @@ if __name__ == '__main__':
                         help='1 seed, 30 epochs')
     parser.add_argument('--coherence', action='store_true',
                         help='Run coherence rollout test (25k steps)')
+    parser.add_argument('--coherence-correction', action='store_true',
+                        help='Run periodic real-data correction coherence test '
+                             '(fixed-schedule vs learned-gate vs zero-correction)')
     parser.add_argument('--max-steps', type=int, default=1_000_000)
+    parser.add_argument('--correction-interval', type=int, default=40,
+                        help='Steps between real-data correction events (Fan et al. 2020)')
+    parser.add_argument('--fixed-c', type=float, default=0.8,
+                        help='Fixed correction blend constant (Fan et al. 2020 Lorenz setup)')
+    parser.add_argument('--lookahead-steps', type=int, default=20,
+                        help='BPTT lookahead window for training the learned CorrectionGate')
     args = parser.parse_args()
 
     if args.quick:
@@ -523,6 +845,12 @@ if __name__ == '__main__':
 
     if args.coherence:
         run_coherence_test(args.variants, args.max_steps, seeds=args.seeds)
+    elif args.coherence_correction:
+        run_coherence_test_with_correction(
+            args.max_steps, seeds=args.seeds,
+            correction_interval=args.correction_interval,
+            fixed_c=args.fixed_c, lookahead_steps=args.lookahead_steps,
+        )
     else:
         for exp in args.experiment:
             run_experiment(exp, args.variants, args.seeds, args.epochs)

@@ -342,6 +342,68 @@ class ElasticAttractorODE(nn.Module):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# 4. CORRECTION GATE (periodic real-data correction, learned trust)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class CorrectionGate(nn.Module):
+    """
+    Learned gate for periodic real-data correction during coherence rollout.
+
+    corrected_value = prediction + G(h, discrepancy) * (real_value - prediction)
+
+    G in [0, 1]: 0 = ignore the correction (trust own dynamics),
+                 1 = fully accept the real-data value.
+
+    Distinct from HyperAgent/EventDetector, which detects discontinuities
+    and applies a discrete jump correction — a different job. This module
+    decides how much to trust an externally supplied real-data correction
+    at scheduled checkpoints; it has no opinion about discontinuities.
+
+    Input: [h, discrepancy, ||discrepancy||] — the model's own hidden
+    state at this timestep, the raw (real - prediction) error vector, and
+    its explicit magnitude (handed in directly rather than learned from
+    scratch, so the gate doesn't have to discover "big error = distrust
+    own prediction" purely from data).
+
+    Training note: this gate only receives a meaningful gradient signal
+    if it is actually exposed to correction events during training, not
+    just at test time — see train_model_with_periodic_correction() in
+    train.py. That training procedure uses a short, fixed-length rollout
+    (correction window + one lookahead window) rather than long BPTT
+    through the full rollout, in the spirit of the "pushforward trick"
+    (Brandstetter et al., 2022) for stabilizing autoregressive rollout
+    training — this is not an implementation of that exact algorithm,
+    just the same underlying idea: train on the model's own generated
+    rollout state without paying for unbounded backprop-through-time.
+    """
+    def __init__(self, hidden: int, out_dim: int, bottleneck: int = 32):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(hidden + out_dim + 1, bottleneck),
+            nn.GELU(),
+            nn.Linear(bottleneck, 1),
+            nn.Sigmoid(),
+        )
+        # Initialize near 0: the gate starts with minimal effect, so it
+        # preserves the already-trained base model's behavior at the
+        # start of this new training phase, rather than immediately
+        # overriding it with an arbitrary initial trust level.
+        nn.init.constant_(self.net[-2].bias, -3.0)
+
+    def forward(self, h: torch.Tensor, discrepancy: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            h:           hidden state at this timestep (B, hidden)
+            discrepancy: real_value - prediction, in observable space (B, out_dim)
+        Returns:
+            gate value in [0, 1], shape (B, 1)
+        """
+        mag = discrepancy.norm(dim=-1, keepdim=True)
+        g_input = torch.cat([h, discrepancy, mag], dim=-1)
+        return self.net(g_input)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # V23 UNIFIED MODEL
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -370,6 +432,7 @@ class SynechismV23(nn.Module):
         use_elastic_manifold:   bool  = True,
         use_irrational_shutter: bool  = True,
         use_laminar_bypass:     bool  = True,
+        use_correction_gate:    bool  = False,
         system:                 str   = 'default',
         phi_base:               float = PHI,
         laminar_threshold:      float = 0.05,
@@ -379,11 +442,13 @@ class SynechismV23(nn.Module):
     ):
         super().__init__()
         self.pred_steps  = pred_steps
+        self.out_dim     = out_dim
         self.use_koopman = use_koopman
         self.use_agent   = use_hyperagent
         self.use_elastic = use_elastic_manifold
         self.use_shutter = use_irrational_shutter
         self.use_bypass  = use_laminar_bypass
+        self.use_correction_gate = use_correction_gate
 
         import sys, os
         sys.path.insert(0, os.path.dirname(__file__))
@@ -437,6 +502,11 @@ class SynechismV23(nn.Module):
             self.agent         = HyperAgent(hidden)
             self.agent_loss_fn = HyperAgentLoss()
 
+        # Correction gate (periodic real-data correction during coherence
+        # rollout) — distinct from HyperAgent above, see CorrectionGate docstring
+        if use_correction_gate:
+            self.correction_gate = CorrectionGate(hidden, out_dim)
+
         # Decoder
         self.decoder = nn.Sequential(
             nn.Linear(hidden, hidden),
@@ -483,8 +553,18 @@ class SynechismV23(nn.Module):
 
         return h_traj
 
-    def forward(self, x: torch.Tensor,
+    def forward_with_states(self, x: torch.Tensor,
                 pred_steps: Optional[int] = None) -> Tuple:
+        """
+        Same computation as forward(), but also returns h_traj — the
+        ODE-integrated hidden state at each predicted timestep, before
+        decoding. Shape: (pred_steps, B, hidden).
+
+        Needed by CorrectionGate, which requires the model's own internal
+        state at a specific timestep to decide how much to trust a
+        real-data correction at that point. forward() doesn't expose this
+        because nothing before the correction-gate work needed it.
+        """
         if pred_steps is None:
             pred_steps = self.pred_steps
 
@@ -499,6 +579,11 @@ class SynechismV23(nn.Module):
             h_traj = torch.stack(corrected, dim=0)
 
         preds = self.decoder(h_traj).permute(1, 0, 2)
+        return preds, mu, logvar, h_traj
+
+    def forward(self, x: torch.Tensor,
+                pred_steps: Optional[int] = None) -> Tuple:
+        preds, mu, logvar, _ = self.forward_with_states(x, pred_steps)
         return preds, mu, logvar
 
     def agent_regularization_loss(self, x: torch.Tensor) -> torch.Tensor:
@@ -532,6 +617,11 @@ def make_v23(variant: str, in_dim: int, out_dim: int,
     bypass_only   — LaminarBypass only (measures efficiency)
     v23_full      — all three components
     v23_hybrid    — all three + HyperAgent (full discontinuous model)
+    v23_hybrid_gated — v23_hybrid + CorrectionGate (learned periodic
+                      real-data correction; see train_model_with_periodic_
+                      correction() in train.py — requires that training
+                      procedure, not the standard train_model(), to learn
+                      a meaningful gate policy)
     """
     base = dict(in_dim=in_dim, out_dim=out_dim, hidden=hidden,
                 pred_steps=pred_steps, system=system, **kwargs)
@@ -561,6 +651,11 @@ def make_v23(variant: str, in_dim: int, out_dim: int,
                               use_irrational_shutter=True,
                               use_laminar_bypass=True,
                               use_hyperagent=True),
+        'v23_hybrid_gated': dict(use_elastic_manifold=True,
+                              use_irrational_shutter=True,
+                              use_laminar_bypass=True,
+                              use_hyperagent=True,
+                              use_correction_gate=True),
     }
 
     if variant not in configs:

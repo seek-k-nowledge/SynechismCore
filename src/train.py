@@ -160,6 +160,186 @@ def train_model(
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# PERIODIC-CORRECTION TRAINING (for CorrectionGate variants only)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def train_model_with_periodic_correction(
+    model:           nn.Module,
+    traj_norm:       torch.Tensor,
+    seq_len:         int   = 50,
+    pred_steps:      int   = 20,
+    lookahead_steps: int   = 20,
+    lr:              float = 1e-3,
+    epochs:          int   = 100,
+    batch_size:      int   = 64,
+    name:            str   = 'model',
+    verbose:         bool  = True,
+    device:          torch.device = None,
+    beta:            float = 0.0005,
+    patience:        int   = 30,
+    warmup_epochs:   int   = 30,
+) -> float:
+    """
+    Trains a CorrectionGate variant (e.g. make_v23('v23_hybrid_gated', ...))
+    by exposing it to a simulated real-data correction event during a
+    short rollout, instead of only the single-window supervised fit that
+    train_model() does. Only variants with use_correction_gate=True need
+    this - every other variant keeps using the standard train_model().
+
+    Design: each training example simulates exactly one correction event,
+    at the boundary of the first predicted window (i.e. from a single
+    training example's perspective, correction happens every pred_steps).
+    The actual test-time correction cadence (e.g. every ~40 steps, less
+    frequent than every window) is a coherence-rollout scheduling detail
+    handled separately in run_coherence_test_with_correction() - this
+    training procedure only needs to teach the gate "a correction just
+    happened here, here's the consequence one window later," which is the
+    same lesson regardless of how often that happens at test time. That's
+    why correction_interval isn't a parameter here.
+
+    BPTT is truncated to exactly two windows (the correction window, plus
+    one lookahead window lookahead_steps long) per training example, in
+    the spirit of the "pushforward trick" (Brandstetter et al., 2022) for
+    stabilizing autoregressive rollout training without unbounded
+    backprop-through-time - this is not an implementation of that exact
+    algorithm, just the same underlying idea: train on the model's own
+    generated (corrected) rollout state without paying for long BPTT.
+
+    Regularization (KL annealing, HyperAgent sparsity/magnitude penalty)
+    mirrors compute_loss() exactly, applied to both windows, so the only
+    experimental variable this introduces relative to train_model() is
+    the correction-gate exposure - not a different training recipe that
+    could confound comparison with the fixed-schedule/zero-correction
+    reference variants.
+
+    NOTE on DataParallel: forward_with_states() is called directly on the
+    unwrapped base module (get_base_model(model)), not through `model`,
+    because nn.DataParallel only dispatches to .forward() and has no
+    mechanism for routing other method calls across replicas. This means
+    the rollout computation in this function runs on a single device even
+    if N_GPU > 1 - a deliberate simplification for this new, specialized
+    training path, not an oversight.
+    """
+    if device is None:
+        device = DEVICE
+
+    base_model = get_base_model(model)
+    if not (hasattr(base_model, 'use_correction_gate') and base_model.use_correction_gate):
+        raise ValueError(
+            "train_model_with_periodic_correction() requires a model built "
+            "with use_correction_gate=True (e.g. make_v23('v23_hybrid_gated', ...))."
+        )
+
+    if not isinstance(model, nn.DataParallel):
+        model = model.to(device)
+    base_model = get_base_model(model)
+
+    traj_norm   = traj_norm.to(device)
+    T           = traj_norm.shape[0]
+    window_span = seq_len + pred_steps + lookahead_steps
+    max_start   = T - window_span
+    if max_start <= 0:
+        raise ValueError(
+            f"traj_norm too short ({T} steps) for seq_len={seq_len} + "
+            f"pred_steps={pred_steps} + lookahead_steps={lookahead_steps}."
+        )
+
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, epochs)
+
+    best_loss       = float('inf')
+    no_improve      = 0
+    steps_per_epoch = max(1, max_start // batch_size)
+
+    # model.eval() first, then correction_gate.train() specifically:
+    # everything else in this model (the frozen, already-trained base
+    # weights) must not drift at all, including buffers that update on
+    # forward passes independent of requires_grad - e.g. spectral_norm's
+    # power-iteration vectors inside ElasticAttractorODE.nonlinear, which
+    # only refresh while their owning module is in train mode. Calling
+    # plain model.train() here would silently let those buffers keep
+    # moving even though their weights are frozen, undermining the
+    # "identical underlying weights otherwise" isolation this training
+    # path exists to guarantee. correction_gate itself has no
+    # train/eval-sensitive layers (no BatchNorm/Dropout/spectral_norm),
+    # so putting it in train mode has no side effect beyond signaling
+    # intent - it's set explicitly only for clarity and convention.
+    #
+    # This is called exactly ONCE, here, before the epoch loop - not
+    # inside it. If a future edit adds a per-epoch or per-batch
+    # model.train() call anywhere below, this eval()/train() sequence
+    # must be reapplied at that same point, or the fix is silently
+    # undone partway through training.
+    model.eval()
+    base_model.correction_gate.train()
+
+    for epoch in range(epochs):
+        beta_eff = beta * min(1.0, epoch / max(1, warmup_epochs))
+        total = 0.0
+
+        for _ in range(steps_per_epoch):
+            starts = torch.randint(0, max_start, (batch_size,)).tolist()
+            optimizer.zero_grad()
+
+            ctx     = torch.stack([traj_norm[s:s + seq_len] for s in starts])
+            gt1     = torch.stack([traj_norm[s + seq_len:s + seq_len + pred_steps] for s in starts])
+            gt2_off = seq_len + pred_steps
+            gt2     = torch.stack([traj_norm[s + gt2_off:s + gt2_off + lookahead_steps] for s in starts])
+
+            # Window 1: raw prediction, then correction at its last step
+            pred1, mu1, logvar1, h_traj1 = base_model.forward_with_states(ctx, pred_steps)
+            loss1 = nn.functional.mse_loss(pred1, gt1)
+            kl1   = -0.5 * torch.mean(1 + logvar1 - mu1.pow(2) - logvar1.exp())
+
+            last_pred   = pred1[:, -1, :]
+            last_real   = gt1[:, -1, :]
+            discrepancy = last_real - last_pred
+            h_last      = h_traj1[-1]
+            gate        = base_model.correction_gate(h_last, discrepancy)
+            corrected_last = last_pred + gate * discrepancy
+
+            corrected_window1 = torch.cat(
+                [pred1[:, :-1, :], corrected_last.unsqueeze(1)], dim=1)
+
+            # Window 2 (lookahead): built from the corrected rollout -
+            # gradient stays connected back through corrected_last into
+            # the gate. This is the only place the gate gets a training
+            # signal about the consequence of its own decision.
+            new_ctx = torch.cat([ctx[:, pred_steps:, :], corrected_window1], dim=1)
+            pred2, mu2, logvar2, _ = base_model.forward_with_states(new_ctx, lookahead_steps)
+            loss2 = nn.functional.mse_loss(pred2, gt2)
+            kl2   = -0.5 * torch.mean(1 + logvar2 - mu2.pow(2) - logvar2.exp())
+
+            loss = loss1 + loss2 + beta_eff * (kl1 + kl2)
+            if base_model.use_agent:
+                loss = loss + base_model.agent_regularization_loss(ctx)
+
+            loss.backward()
+            nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            optimizer.step()
+            total += loss.item()
+
+        avg = total / steps_per_epoch
+        scheduler.step()
+
+        if avg < best_loss:
+            best_loss  = avg
+            no_improve = 0
+        else:
+            no_improve += 1
+
+        if no_improve >= patience:
+            if verbose:
+                print(f"    [{name:>18}] early stop @ epoch {epoch+1} | loss={best_loss:.6f}")
+            break
+
+        if verbose and (epoch + 1) % max(1, epochs // 4) == 0:
+            print(f"    [{name:>18}] epoch {epoch+1:>3}/{epochs} | loss={avg:.6f}")
+
+    return best_loss
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # EVALUATION
 # ══════════════════════════════════════════════════════════════════════════════
 
