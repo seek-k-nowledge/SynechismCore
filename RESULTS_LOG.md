@@ -1,3 +1,11 @@
+<!-- TEMP NOTICE - remove once full rewrite with final results is published -->
+> **Update (September 2026):** We identified a measurement flaw
+> affecting the long-horizon coherence claim in this paper (the
+> reported 19,940-step figure). Corrected methodology and re-verified
+> results are in progress. Coherence-related claims in the current
+> whitepaper PDF should be treated as under revision until an updated
+> version is published here.
+
 # SynechismCore — Live Results Log
 
 Plain-English record of what's been run, what it means, and how it compares
