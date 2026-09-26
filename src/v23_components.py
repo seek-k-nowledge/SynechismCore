@@ -376,7 +376,18 @@ class CorrectionGate(nn.Module):
     just the same underlying idea: train on the model's own generated
     rollout state without paying for unbounded backprop-through-time.
     """
-    def __init__(self, hidden: int, out_dim: int, bottleneck: int = 32):
+    def __init__(self, hidden: int, out_dim: int, bottleneck: int = 32,
+                 init_bias: float = -3.0):
+        """
+        init_bias: pre-sigmoid bias for the gate's output layer.
+            Default -3.0 -> sigmoid(-3.0) ~ 0.05 (near 0, minimal initial
+            effect - the original choice, preserved as the default so
+            existing callers are unaffected).
+            Experiment 4 (gate retrain) uses init_bias=logit(0.8)~=+1.386
+            instead, to test whether starting the gate near the Fan et
+            al. fixed constant (rather than near 0) helps it escape a
+            stuck-near-0 local optimum.
+        """
         super().__init__()
         self.net = nn.Sequential(
             nn.Linear(hidden + out_dim + 1, bottleneck),
@@ -384,11 +395,7 @@ class CorrectionGate(nn.Module):
             nn.Linear(bottleneck, 1),
             nn.Sigmoid(),
         )
-        # Initialize near 0: the gate starts with minimal effect, so it
-        # preserves the already-trained base model's behavior at the
-        # start of this new training phase, rather than immediately
-        # overriding it with an arbitrary initial trust level.
-        nn.init.constant_(self.net[-2].bias, -3.0)
+        nn.init.constant_(self.net[-2].bias, init_bias)
 
     def forward(self, h: torch.Tensor, discrepancy: torch.Tensor) -> torch.Tensor:
         """
@@ -433,6 +440,7 @@ class SynechismV23(nn.Module):
         use_irrational_shutter: bool  = True,
         use_laminar_bypass:     bool  = True,
         use_correction_gate:    bool  = False,
+        correction_gate_init_bias: float = -3.0,
         system:                 str   = 'default',
         phi_base:               float = PHI,
         laminar_threshold:      float = 0.05,
@@ -505,7 +513,8 @@ class SynechismV23(nn.Module):
         # Correction gate (periodic real-data correction during coherence
         # rollout) — distinct from HyperAgent above, see CorrectionGate docstring
         if use_correction_gate:
-            self.correction_gate = CorrectionGate(hidden, out_dim)
+            self.correction_gate = CorrectionGate(hidden, out_dim,
+                                                   init_bias=correction_gate_init_bias)
 
         # Decoder
         self.decoder = nn.Sequential(

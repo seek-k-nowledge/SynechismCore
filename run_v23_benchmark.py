@@ -809,6 +809,496 @@ def run_coherence_test_with_correction(max_steps=1_000_000, seeds=None,
     return all_results, summary
 
 
+# Standard Lorenz-63 largest Lyapunov exponent, per user-specified value
+# (the codebase's own chaotic_metrics.py stores 0.9056 for 'lorenz63_rho28',
+# effectively the same value to 3 significant figures).
+LORENZ63_LYAPUNOV_EXPONENT = 0.906
+
+
+def steps_to_lyapunov_times(steps, dt, lyapunov_exponent=LORENZ63_LYAPUNOV_EXPONENT):
+    """1 Lyapunov time = 1 / (lyapunov_exponent * dt) steps."""
+    return steps * lyapunov_exponent * dt
+
+
+def run_coherence_test_head_to_head(max_steps=1_000_000, seeds=None,
+                                     correction_interval=40, fixed_c=0.8):
+    """
+    Experiment 3 (NEW, ADDITIVE): head-to-head comparison of five
+    architectures under IDENTICAL fixed-schedule correction. Does NOT
+    modify run_coherence_test(), run_coherence_test_with_correction(), or
+    the corrected divergence metric in any way - separate function,
+    duplicated boilerplate, same convention as those two.
+
+    Architectures: v23_hybrid, v22_baseline (both via make_v23()), lstm,
+    transformer, mamba (src/models.py). Each is trained ONCE per seed via
+    the standard train_model(), then evaluated under BOTH zero-correction
+    and fixed-correction rollouts from the SAME trained weights - isolating
+    the correction strategy as the only variable per architecture (extra
+    evaluation, not extra training).
+
+    Correction mechanism is identical to last night's v22_baseline_fixed
+    condition in run_coherence_test_with_correction(): corrected_value =
+    prediction + fixed_c * (real_value - prediction), applied only to the
+    last timestep of a window when that window's end lands on a
+    correction_interval boundary. Divergence criterion (normalized
+    RMSE/window_std vs 0.4, rolling window >50% of last 20) is the exact
+    same corrected metric.
+    """
+    if seeds is None:
+        seeds = [42]
+
+    VPT_NORM_THRESHOLD = 0.4
+    DIVERGENCE_WINDOW_SIZE = 20
+    DIVERGENCE_FRACTION_THRESHOLD = 0.5
+
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    torch.use_deterministic_algorithms(True, warn_only=True)
+
+    from data import generate_lorenz63
+
+    print(f"\n{'='*62}")
+    print(f"  EXPERIMENT 3: HEAD-TO-HEAD UNDER IDENTICAL CORRECTION — {max_steps:,} steps")
+    print(f"  seeds={seeds}  correction_interval={correction_interval}  fixed_c={fixed_c}")
+    print(f"{'='*62}")
+
+    rho = 28.0
+    dt  = 0.02
+    seq_len, pred_steps = 50, 20
+
+    ARCHITECTURES = ['v23_hybrid', 'v22_baseline', 'lstm', 'transformer', 'mamba']
+    CORRECTION_MODES = ['zero', 'fixed']
+
+    all_results = []
+    per_condition_steps = {f"{a}_{m}": [] for a in ARCHITECTURES for m in CORRECTION_MODES}
+
+    for seed in seeds:
+        print(f"\n  ── seed {seed} ──")
+        set_seed(seed)
+
+        traj = generate_lorenz63(rho, max_steps + 300, dt=dt,
+                                  warmup=2000, seed=seed)
+        traj_t = torch.FloatTensor(traj[300:])
+        mu  = traj_t[:500].mean(0)
+        std = traj_t[:500].std(0).clamp(min=1e-6)
+        traj_norm = (traj_t - mu) / std
+
+        X_list, Y_list = [], []
+        for s in range(0, min(5000, len(traj_norm)) - seq_len - pred_steps, 3):
+            X_list.append(traj_norm[s:s + seq_len])
+            Y_list.append(traj_norm[s + seq_len:s + seq_len + pred_steps])
+        X_tr = torch.stack(X_list)
+        Y_tr = torch.stack(Y_list)
+
+        trained = {}
+        for arch in ARCHITECTURES:
+            if arch in ('v23_hybrid', 'v22_baseline'):
+                model = make_v23(arch, 3, 3, hidden=128, pred_steps=pred_steps)
+            elif arch == 'lstm':
+                model = FairLSTM(3, 3, 128, pred_steps)
+            elif arch == 'transformer':
+                model = FairTransformer(3, 3, 128, pred_steps)
+            elif arch == 'mamba':
+                model = FairMamba(3, 3, 128, pred_steps)
+            m = wrap(model)
+            train_model(m, X_tr, Y_tr, lr=1e-3, epochs=100,
+                        batch_size=64, verbose=False, device=DEVICE)
+            trained[arch] = m
+
+        for arch in list(trained.keys()):
+            model = trained[arch]
+            base  = get_base_model(model)
+            model.eval()
+            # Duck-typing matches run_coherence_test()'s original convention:
+            # SynechismV23 models (v23_hybrid, v22_baseline) return a 3-tuple;
+            # the plain baselines (lstm, transformer, mamba) return a bare tensor.
+            is_synechism = hasattr(base, 'ode_func') or hasattr(base, 'encoder')
+
+            for mode in CORRECTION_MODES:
+                name = f"{arch}_{mode}"
+                context = traj_norm[:seq_len].unsqueeze(0).to(DEVICE)
+                coherent_steps = 0
+                recent_windows = deque(maxlen=DIVERGENCE_WINDOW_SIZE)
+                step = 0
+                stopped_reason = None
+                step_start_time = time.time()
+
+                with torch.no_grad():
+                    while step < max_steps - pred_steps:
+                        if is_synechism:
+                            pred, _, _ = model(context)
+                        else:
+                            pred = model(context)
+                        pred = pred[0]
+
+                        gt_start = seq_len + step
+                        gt_end   = gt_start + pred_steps
+                        if gt_end >= len(traj_norm):
+                            break
+                        gt = traj_norm[gt_start:gt_end].to(DEVICE)
+
+                        window_std = gt.std().item()
+                        if window_std < 1e-8:
+                            window_std = 1.0
+                        normalized_error = torch.sqrt(((pred - gt) ** 2).mean()).item() / window_std
+
+                        recent_windows.append(normalized_error > VPT_NORM_THRESHOLD)
+                        if (len(recent_windows) == DIVERGENCE_WINDOW_SIZE and
+                                sum(recent_windows) / DIVERGENCE_WINDOW_SIZE > DIVERGENCE_FRACTION_THRESHOLD):
+                            stopped_reason = "diverged"
+                            break
+
+                        coherent_steps += pred_steps
+                        step           += pred_steps
+
+                        next_window = pred.clone()
+                        is_correction_step = (mode == 'fixed' and step % correction_interval == 0)
+                        if is_correction_step:
+                            last_pred   = pred[-1]
+                            last_real   = gt[-1]
+                            discrepancy = last_real - last_pred
+                            next_window[-1] = last_pred + fixed_c * discrepancy
+
+                        context = torch.cat([
+                            context[:, pred_steps:, :],
+                            next_window.unsqueeze(0).clamp(-10, 10).detach()
+                        ], dim=1)
+
+                        if step % 1000 == 0:
+                            elapsed = time.time() - step_start_time
+                            rate = step / max(elapsed, 0.1)
+                            print(f"      [{name}] step {step:>7,}/{max_steps:,} — "
+                                  f"{elapsed:>6.0f}s elapsed — {rate:>6.0f} steps/sec")
+
+                    if stopped_reason is None:
+                        stopped_reason = "max_steps_reached"
+
+                needs_review = (stopped_reason == "max_steps_reached")
+                lyap_times = steps_to_lyapunov_times(coherent_steps, dt)
+                mark = "🏆" if coherent_steps >= 19940 else "✅" if coherent_steps > 5000 else "⚠️"
+                if needs_review:
+                    mark = "⚠️🔍"
+                print(f"    {mark} {name:<20}  {coherent_steps:>8,} steps  "
+                      f"({lyap_times:.2f} TL)  ({stopped_reason})")
+
+                all_results.append({
+                    'architecture': arch,
+                    'correction_mode': mode,
+                    'seed': seed,
+                    'coherent_steps': coherent_steps,
+                    'coherent_lyapunov_times': lyap_times,
+                    'stopped_reason': stopped_reason,
+                    'needs_manual_review': needs_review,
+                })
+                per_condition_steps[name].append((coherent_steps, needs_review))
+
+            del trained[arch]
+            del model
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+    normal_steps = {n: [s for s, review in per_condition_steps[n] if not review]
+                    for n in per_condition_steps}
+    review_steps = {n: [(seeds[i], s) for i, (s, review) in enumerate(per_condition_steps[n]) if review]
+                    for n in per_condition_steps}
+
+    print(f"\n  {'Architecture x Mode':<24}  {'Mean Steps':>12}  {'Std':>10}  "
+          f"{'Mean TL':>10}  {'Min':>8}  {'Max':>8}")
+    print(f"  {'─'*24}  {'─'*12}  {'─'*10}  {'─'*10}  {'─'*8}  {'─'*8}")
+
+    summary = {}
+    for name in per_condition_steps:
+        if normal_steps[name]:
+            arr = np.array(normal_steps[name])
+            mean, std = arr.mean(), arr.std()
+            min_val, max_val = arr.min(), arr.max()
+            mean_lt = steps_to_lyapunov_times(mean, dt)
+            summary[name] = {'mean': float(mean), 'std': float(std),
+                             'min': int(min_val), 'max': int(max_val),
+                             'mean_lyapunov_times': float(mean_lt)}
+            print(f"  {name:<24}  {mean:>12.1f}  {std:>10.1f}  {mean_lt:>10.2f}  {min_val:>8}  {max_val:>8}")
+
+    has_review_cases = any(review_steps.values())
+    if has_review_cases:
+        print(f"\n  ⚠️  Results flagged for manual review (hit --max-steps ceiling):")
+        for name in per_condition_steps:
+            for seed_val, s in review_steps[name]:
+                print(f"  {name:<24}  seed={seed_val:>3}  {s:>10,} steps  ← verify")
+
+    os.makedirs('./results/coherence', exist_ok=True)
+    with open('./results/coherence/coherence_head_to_head_results.json', 'w') as f:
+        json.dump({
+            'rho': rho, 'dt': dt,
+            'lyapunov_exponent': LORENZ63_LYAPUNOV_EXPONENT,
+            'max_steps': max_steps,
+            'seeds': seeds,
+            'correction_interval': correction_interval,
+            'fixed_c': fixed_c,
+            'individual_results': all_results,
+            'summary': summary,
+            'note': 'Results with needs_manual_review=true hit the --max-steps ceiling; '
+                    'verify they are genuinely coherent, not metric blind spots.'
+        }, f, indent=2)
+    print(f"\n  Saved: ./results/coherence/coherence_head_to_head_results.json")
+    return all_results, summary
+
+
+def run_coherence_test_gate_retrain(max_steps=1_000_000, seeds=None,
+                                     correction_interval=40, fixed_c=0.8,
+                                     lookahead_steps=20, gate_train_epochs=100,
+                                     new_n_cycles=5):
+    """
+    Experiment 4 (NEW, ADDITIVE): gate retrain. Does NOT modify
+    run_coherence_test(), run_coherence_test_with_correction(),
+    run_coherence_test_head_to_head(), or the corrected divergence metric
+    in any way - separate function, duplicated boilerplate, same
+    convention as those.
+
+    Tests whether last night's learned CorrectionGate was genuinely
+    undertrained/stuck (bias init -3.0 -> sigmoid ~0.05, one correction
+    event + one lookahead window per training example) rather than a
+    real negative result, by comparing two conditions per seed:
+
+      - v23_hybrid_gated_old_relogged: EXACT same training settings as
+        last night's v23_hybrid_gated (init_bias=-3.0 default, n_cycles=1
+        default -> train_model_with_periodic_correction()'s unchanged
+        original code path). Only difference from last night: gate-value
+        logging is now on during the coherence rollout, so we can see
+        directly whether the gate was actually stuck near 0.05.
+      - v23_hybrid_gated_v2: init_bias=logit(fixed_c) (~=+1.386 for
+        fixed_c=0.8, starting near the Fan et al. fixed constant instead
+        of near 0), trained with n_cycles=new_n_cycles multi-cycle
+        rollout training (Bocquet et al., NPG 2026-inspired - see
+        train_model_with_periodic_correction()'s docstring in train.py).
+        new_n_cycles defaults to 5; this count wasn't specified in the
+        brief, so it's exposed as a parameter rather than silently fixed.
+
+    Both conditions keep last night's isolation exactly: the gated model
+    starts from that seed's trained v23_hybrid weights (load_state_dict,
+    strict=False), every parameter except correction_gate.* is frozen,
+    and train_model_with_periodic_correction() internally does
+    model.eval() + correction_gate.train() (not a blanket model.train())
+    so frozen spectral-norm buffers can't drift during gate training.
+
+    Gate-value logging (NEW for this experiment): the gate's actual
+    output (sigmoid, in [0,1]) is recorded at every correction step, for
+    every seed (not just seed 0), stored per-step in individual_results
+    and summarized as mean/min/max per (condition, seed).
+    """
+    if seeds is None:
+        seeds = [42]
+
+    VPT_NORM_THRESHOLD = 0.4
+    DIVERGENCE_WINDOW_SIZE = 20
+    DIVERGENCE_FRACTION_THRESHOLD = 0.5
+
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    torch.use_deterministic_algorithms(True, warn_only=True)
+
+    from data import generate_lorenz63
+    import math
+    logit_fixed_c = math.log(fixed_c / (1 - fixed_c))
+
+    print(f"\n{'='*62}")
+    print(f"  EXPERIMENT 4: GATE RETRAIN — {max_steps:,} steps")
+    print(f"  seeds={seeds}  correction_interval={correction_interval}  new_n_cycles={new_n_cycles}")
+    print(f"{'='*62}")
+
+    rho = 28.0
+    dt  = 0.02
+    seq_len, pred_steps = 50, 20
+
+    CONDITIONS = [
+        {'name': 'v23_hybrid_gated_old_relogged', 'init_bias': -3.0,        'n_cycles': 1},
+        {'name': 'v23_hybrid_gated_v2',           'init_bias': logit_fixed_c, 'n_cycles': new_n_cycles},
+    ]
+
+    all_results = []
+    per_condition_steps = {c['name']: [] for c in CONDITIONS}
+
+    for seed in seeds:
+        print(f"\n  ── seed {seed} ──")
+        set_seed(seed)
+
+        traj = generate_lorenz63(rho, max_steps + 300, dt=dt,
+                                  warmup=2000, seed=seed)
+        traj_t = torch.FloatTensor(traj[300:])
+        mu  = traj_t[:500].mean(0)
+        std = traj_t[:500].std(0).clamp(min=1e-6)
+        traj_norm = (traj_t - mu) / std
+
+        X_list, Y_list = [], []
+        for s in range(0, min(5000, len(traj_norm)) - seq_len - pred_steps, 3):
+            X_list.append(traj_norm[s:s + seq_len])
+            Y_list.append(traj_norm[s + seq_len:s + seq_len + pred_steps])
+        X_tr = torch.stack(X_list)
+        Y_tr = torch.stack(Y_list)
+
+        # Train v23_hybrid once per seed - both gated conditions start from
+        # its exact trained weights (same isolation as
+        # run_coherence_test_with_correction()).
+        hybrid_model = make_v23('v23_hybrid', 3, 3, hidden=128, pred_steps=pred_steps)
+        hybrid_m = wrap(hybrid_model)
+        train_model(hybrid_m, X_tr, Y_tr, lr=1e-3, epochs=100,
+                    batch_size=64, verbose=False, device=DEVICE)
+        base_hybrid = get_base_model(hybrid_m)
+
+        for cond in CONDITIONS:
+            cname = cond['name']
+            gated_model = make_v23('v23_hybrid_gated', 3, 3, hidden=128, pred_steps=pred_steps,
+                                    correction_gate_init_bias=cond['init_bias'])
+            gated_model.load_state_dict(base_hybrid.state_dict(), strict=False)
+            for pname, p in gated_model.named_parameters():
+                p.requires_grad = pname.startswith('correction_gate.')
+
+            m = wrap(gated_model)
+            train_model_with_periodic_correction(
+                m, traj_norm[:5000], seq_len=seq_len, pred_steps=pred_steps,
+                lookahead_steps=lookahead_steps, epochs=gate_train_epochs,
+                batch_size=64, verbose=False, device=DEVICE, name=cname,
+                n_cycles=cond['n_cycles'], correction_interval=correction_interval,
+                detach_between_cycles=True,
+            )
+
+            base = get_base_model(m)
+            m.eval()
+
+            context = traj_norm[:seq_len].unsqueeze(0).to(DEVICE)
+            coherent_steps = 0
+            recent_windows = deque(maxlen=DIVERGENCE_WINDOW_SIZE)
+            step = 0
+            stopped_reason = None
+            step_start_time = time.time()
+            gate_log = []  # every gate value at every correction step, this seed
+
+            with torch.no_grad():
+                while step < max_steps - pred_steps:
+                    pred, _, _, h_traj = base.forward_with_states(context)
+                    pred   = pred[0]
+                    h_traj = h_traj[:, 0, :]
+
+                    gt_start = seq_len + step
+                    gt_end   = gt_start + pred_steps
+                    if gt_end >= len(traj_norm):
+                        break
+                    gt = traj_norm[gt_start:gt_end].to(DEVICE)
+
+                    window_std = gt.std().item()
+                    if window_std < 1e-8:
+                        window_std = 1.0
+                    normalized_error = torch.sqrt(((pred - gt) ** 2).mean()).item() / window_std
+
+                    recent_windows.append(normalized_error > VPT_NORM_THRESHOLD)
+                    if (len(recent_windows) == DIVERGENCE_WINDOW_SIZE and
+                            sum(recent_windows) / DIVERGENCE_WINDOW_SIZE > DIVERGENCE_FRACTION_THRESHOLD):
+                        stopped_reason = "diverged"
+                        break
+
+                    coherent_steps += pred_steps
+                    step           += pred_steps
+
+                    next_window = pred.clone()
+                    is_correction_step = (step % correction_interval == 0)
+                    if is_correction_step:
+                        last_pred   = pred[-1]
+                        last_real   = gt[-1]
+                        discrepancy = last_real - last_pred
+                        h_last = h_traj[-1].unsqueeze(0)
+                        disc_b = discrepancy.unsqueeze(0)
+                        gate_val = base.correction_gate(h_last, disc_b).item()
+                        gate_log.append(gate_val)
+                        next_window[-1] = last_pred + gate_val * discrepancy
+
+                    context = torch.cat([
+                        context[:, pred_steps:, :],
+                        next_window.unsqueeze(0).clamp(-10, 10).detach()
+                    ], dim=1)
+
+                    if step % 1000 == 0:
+                        elapsed = time.time() - step_start_time
+                        rate = step / max(elapsed, 0.1)
+                        print(f"      [{cname}] step {step:>7,}/{max_steps:,} — "
+                              f"{elapsed:>6.0f}s elapsed — {rate:>6.0f} steps/sec")
+
+                if stopped_reason is None:
+                    stopped_reason = "max_steps_reached"
+
+            needs_review = (stopped_reason == "max_steps_reached")
+            lyap_times = steps_to_lyapunov_times(coherent_steps, dt)
+            gate_arr = np.array(gate_log) if gate_log else np.array([float('nan')])
+            gate_mean = float(np.nanmean(gate_arr))
+            gate_min  = float(np.nanmin(gate_arr))
+            gate_max  = float(np.nanmax(gate_arr))
+
+            mark = "🏆" if coherent_steps >= 19940 else "✅" if coherent_steps > 5000 else "⚠️"
+            if needs_review:
+                mark = "⚠️🔍"
+            print(f"    {mark} {cname:<30}  {coherent_steps:>8,} steps  ({lyap_times:.2f} TL)  "
+                  f"gate[mean/min/max]={gate_mean:.3f}/{gate_min:.3f}/{gate_max:.3f}  ({stopped_reason})")
+
+            all_results.append({
+                'condition': cname,
+                'seed': seed,
+                'coherent_steps': coherent_steps,
+                'coherent_lyapunov_times': lyap_times,
+                'stopped_reason': stopped_reason,
+                'needs_manual_review': needs_review,
+                'n_correction_steps': len(gate_log),
+                'gate_values': gate_log,
+                'gate_value_mean': gate_mean,
+                'gate_value_min': gate_min,
+                'gate_value_max': gate_max,
+            })
+            per_condition_steps[cname].append((coherent_steps, needs_review))
+
+            del m, base, gated_model
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+        del hybrid_m, base_hybrid, hybrid_model
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+    normal_steps = {n: [s for s, review in per_condition_steps[n] if not review]
+                    for n in per_condition_steps}
+
+    print(f"\n  {'Condition':<32}  {'Mean Steps':>12}  {'Std':>10}  {'Mean TL':>10}")
+    print(f"  {'─'*32}  {'─'*12}  {'─'*10}  {'─'*10}")
+    summary = {}
+    for name in per_condition_steps:
+        if normal_steps[name]:
+            arr = np.array(normal_steps[name])
+            mean, std = arr.mean(), arr.std()
+            mean_lt = steps_to_lyapunov_times(mean, dt)
+            gate_means = [r['gate_value_mean'] for r in all_results if r['condition'] == name]
+            summary[name] = {
+                'mean_steps': float(mean), 'std_steps': float(std),
+                'mean_lyapunov_times': float(mean_lt),
+                'gate_value_mean_across_seeds': float(np.nanmean(gate_means)) if gate_means else None,
+            }
+            print(f"  {name:<32}  {mean:>12.1f}  {std:>10.1f}  {mean_lt:>10.2f}")
+
+    os.makedirs('./results/coherence', exist_ok=True)
+    with open('./results/coherence/coherence_gate_retrain_results.json', 'w') as f:
+        json.dump({
+            'rho': rho, 'dt': dt,
+            'lyapunov_exponent': LORENZ63_LYAPUNOV_EXPONENT,
+            'max_steps': max_steps,
+            'seeds': seeds,
+            'correction_interval': correction_interval,
+            'fixed_c_reference': fixed_c,
+            'new_n_cycles': new_n_cycles,
+            'individual_results': all_results,
+            'summary': summary,
+        }, f, indent=2)
+    print(f"\n  Saved: ./results/coherence/coherence_gate_retrain_results.json")
+    return all_results, summary
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--experiment', nargs='+',
@@ -827,6 +1317,12 @@ if __name__ == '__main__':
     parser.add_argument('--coherence-correction', action='store_true',
                         help='Run periodic real-data correction coherence test '
                              '(fixed-schedule vs learned-gate vs zero-correction)')
+    parser.add_argument('--coherence-head-to-head', action='store_true',
+                        help='Experiment 3: five architectures under identical '
+                             'fixed-schedule correction (zero vs fixed, same trained weights)')
+    parser.add_argument('--coherence-gate-retrain', action='store_true',
+                        help='Experiment 4: retrain CorrectionGate with logit(fixed_c) init '
+                             'and multi-cycle training, vs last-night settings relogged')
     parser.add_argument('--max-steps', type=int, default=1_000_000)
     parser.add_argument('--correction-interval', type=int, default=40,
                         help='Steps between real-data correction events (Fan et al. 2020)')
@@ -834,6 +1330,9 @@ if __name__ == '__main__':
                         help='Fixed correction blend constant (Fan et al. 2020 Lorenz setup)')
     parser.add_argument('--lookahead-steps', type=int, default=20,
                         help='BPTT lookahead window for training the learned CorrectionGate')
+    parser.add_argument('--gate-n-cycles', type=int, default=5,
+                        help='Experiment 4: number of full correction cycles to train '
+                             'the new-settings gate across')
     args = parser.parse_args()
 
     if args.quick:
@@ -850,6 +1349,17 @@ if __name__ == '__main__':
             args.max_steps, seeds=args.seeds,
             correction_interval=args.correction_interval,
             fixed_c=args.fixed_c, lookahead_steps=args.lookahead_steps,
+        )
+    elif args.coherence_head_to_head:
+        run_coherence_test_head_to_head(
+            args.max_steps, seeds=args.seeds,
+            correction_interval=args.correction_interval, fixed_c=args.fixed_c,
+        )
+    elif args.coherence_gate_retrain:
+        run_coherence_test_gate_retrain(
+            args.max_steps, seeds=args.seeds,
+            correction_interval=args.correction_interval, fixed_c=args.fixed_c,
+            lookahead_steps=args.lookahead_steps, new_n_cycles=args.gate_n_cycles,
         )
     else:
         for exp in args.experiment:

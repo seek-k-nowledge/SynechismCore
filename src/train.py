@@ -178,6 +178,9 @@ def train_model_with_periodic_correction(
     beta:            float = 0.0005,
     patience:        int   = 30,
     warmup_epochs:   int   = 30,
+    n_cycles:            int  = 1,
+    correction_interval: int  = None,
+    detach_between_cycles: bool = True,
 ) -> float:
     """
     Trains a CorrectionGate variant (e.g. make_v23('v23_hybrid_gated', ...))
@@ -186,16 +189,16 @@ def train_model_with_periodic_correction(
     train_model() does. Only variants with use_correction_gate=True need
     this - every other variant keeps using the standard train_model().
 
-    Design: each training example simulates exactly one correction event,
-    at the boundary of the first predicted window (i.e. from a single
-    training example's perspective, correction happens every pred_steps).
-    The actual test-time correction cadence (e.g. every ~40 steps, less
-    frequent than every window) is a coherence-rollout scheduling detail
-    handled separately in run_coherence_test_with_correction() - this
-    training procedure only needs to teach the gate "a correction just
-    happened here, here's the consequence one window later," which is the
-    same lesson regardless of how often that happens at test time. That's
-    why correction_interval isn't a parameter here.
+    Default (n_cycles=1, the original, unchanged behavior): each training
+    example simulates exactly one correction event, at the boundary of the
+    first predicted window (i.e. from a single training example's
+    perspective, correction happens every pred_steps). The actual
+    test-time correction cadence (e.g. every ~40 steps, less frequent than
+    every window) is a coherence-rollout scheduling detail handled
+    separately in run_coherence_test_with_correction() - this training
+    procedure only needs to teach the gate "a correction just happened
+    here, here's the consequence one window later," which is the same
+    lesson regardless of how often that happens at test time.
 
     BPTT is truncated to exactly two windows (the correction window, plus
     one lookahead window lookahead_steps long) per training example, in
@@ -205,8 +208,26 @@ def train_model_with_periodic_correction(
     algorithm, just the same underlying idea: train on the model's own
     generated (corrected) rollout state without paying for long BPTT.
 
+    n_cycles > 1 (NEW, additive, opt-in - Experiment 4 / Bocquet et al.,
+    NPG 2026-inspired multi-cycle training): instead of one correction
+    event, each training example simulates n_cycles realistic correction
+    cycles back to back, correction_interval steps apart (matching the
+    actual coherence-rollout cadence, e.g. 40, rather than the
+    pred_steps-boundary simplification used when n_cycles=1), plus one
+    final lookahead window after the last cycle's correction. Backprop is
+    still bounded: with detach_between_cycles=True (default), the context
+    is detached after every window EXCEPT a correction window, so gradient
+    always flows from a correction event into exactly the one window that
+    follows it - the same ~2-window depth as the n_cycles=1 case - without
+    growing with n_cycles. This still gives the gate n_cycles independent
+    correction events' worth of gradient signal per optimizer step, just
+    without paying for backprop across the entire multi-cycle rollout.
+    IMPORTANT: this branch is only reached when n_cycles > 1 is explicitly
+    passed; with the default n_cycles=1, the code path below is completely
+    unchanged from before this parameter existed.
+
     Regularization (KL annealing, HyperAgent sparsity/magnitude penalty)
-    mirrors compute_loss() exactly, applied to both windows, so the only
+    mirrors compute_loss() exactly, applied to every window, so the only
     experimental variable this introduces relative to train_model() is
     the correction-gate exposure - not a different training recipe that
     could confound comparison with the fixed-schedule/zero-correction
@@ -234,14 +255,22 @@ def train_model_with_periodic_correction(
         model = model.to(device)
     base_model = get_base_model(model)
 
-    traj_norm   = traj_norm.to(device)
-    T           = traj_norm.shape[0]
-    window_span = seq_len + pred_steps + lookahead_steps
-    max_start   = T - window_span
+    traj_norm = traj_norm.to(device)
+    T         = traj_norm.shape[0]
+
+    if n_cycles <= 1:
+        windows_per_cycle = None  # unused in this branch
+        window_span = seq_len + pred_steps + lookahead_steps
+    else:
+        windows_per_cycle = max(1, (correction_interval or pred_steps) // pred_steps)
+        window_span = seq_len + n_cycles * windows_per_cycle * pred_steps + lookahead_steps
+
+    max_start = T - window_span
     if max_start <= 0:
         raise ValueError(
             f"traj_norm too short ({T} steps) for seq_len={seq_len} + "
-            f"pred_steps={pred_steps} + lookahead_steps={lookahead_steps}."
+            f"pred_steps={pred_steps} + lookahead_steps={lookahead_steps} "
+            f"(n_cycles={n_cycles}, windows_per_cycle={windows_per_cycle})."
         )
 
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
@@ -281,38 +310,98 @@ def train_model_with_periodic_correction(
             starts = torch.randint(0, max_start, (batch_size,)).tolist()
             optimizer.zero_grad()
 
-            ctx     = torch.stack([traj_norm[s:s + seq_len] for s in starts])
-            gt1     = torch.stack([traj_norm[s + seq_len:s + seq_len + pred_steps] for s in starts])
-            gt2_off = seq_len + pred_steps
-            gt2     = torch.stack([traj_norm[s + gt2_off:s + gt2_off + lookahead_steps] for s in starts])
+            ctx = torch.stack([traj_norm[s:s + seq_len] for s in starts])
 
-            # Window 1: raw prediction, then correction at its last step
-            pred1, mu1, logvar1, h_traj1 = base_model.forward_with_states(ctx, pred_steps)
-            loss1 = nn.functional.mse_loss(pred1, gt1)
-            kl1   = -0.5 * torch.mean(1 + logvar1 - mu1.pow(2) - logvar1.exp())
+            if n_cycles <= 1:
+                # ORIGINAL CODE PATH — byte-for-byte unchanged from before
+                # n_cycles/correction_interval/detach_between_cycles
+                # existed. This is what last night's run used, and it's
+                # what every call that doesn't explicitly pass n_cycles>1
+                # still gets.
+                gt1     = torch.stack([traj_norm[s + seq_len:s + seq_len + pred_steps] for s in starts])
+                gt2_off = seq_len + pred_steps
+                gt2     = torch.stack([traj_norm[s + gt2_off:s + gt2_off + lookahead_steps] for s in starts])
 
-            last_pred   = pred1[:, -1, :]
-            last_real   = gt1[:, -1, :]
-            discrepancy = last_real - last_pred
-            h_last      = h_traj1[-1]
-            gate        = base_model.correction_gate(h_last, discrepancy)
-            corrected_last = last_pred + gate * discrepancy
+                # Window 1: raw prediction, then correction at its last step
+                pred1, mu1, logvar1, h_traj1 = base_model.forward_with_states(ctx, pred_steps)
+                loss1 = nn.functional.mse_loss(pred1, gt1)
+                kl1   = -0.5 * torch.mean(1 + logvar1 - mu1.pow(2) - logvar1.exp())
 
-            corrected_window1 = torch.cat(
-                [pred1[:, :-1, :], corrected_last.unsqueeze(1)], dim=1)
+                last_pred   = pred1[:, -1, :]
+                last_real   = gt1[:, -1, :]
+                discrepancy = last_real - last_pred
+                h_last      = h_traj1[-1]
+                gate        = base_model.correction_gate(h_last, discrepancy)
+                corrected_last = last_pred + gate * discrepancy
 
-            # Window 2 (lookahead): built from the corrected rollout -
-            # gradient stays connected back through corrected_last into
-            # the gate. This is the only place the gate gets a training
-            # signal about the consequence of its own decision.
-            new_ctx = torch.cat([ctx[:, pred_steps:, :], corrected_window1], dim=1)
-            pred2, mu2, logvar2, _ = base_model.forward_with_states(new_ctx, lookahead_steps)
-            loss2 = nn.functional.mse_loss(pred2, gt2)
-            kl2   = -0.5 * torch.mean(1 + logvar2 - mu2.pow(2) - logvar2.exp())
+                corrected_window1 = torch.cat(
+                    [pred1[:, :-1, :], corrected_last.unsqueeze(1)], dim=1)
 
-            loss = loss1 + loss2 + beta_eff * (kl1 + kl2)
-            if base_model.use_agent:
-                loss = loss + base_model.agent_regularization_loss(ctx)
+                # Window 2 (lookahead): built from the corrected rollout -
+                # gradient stays connected back through corrected_last into
+                # the gate. This is the only place the gate gets a training
+                # signal about the consequence of its own decision.
+                new_ctx = torch.cat([ctx[:, pred_steps:, :], corrected_window1], dim=1)
+                pred2, mu2, logvar2, _ = base_model.forward_with_states(new_ctx, lookahead_steps)
+                loss2 = nn.functional.mse_loss(pred2, gt2)
+                kl2   = -0.5 * torch.mean(1 + logvar2 - mu2.pow(2) - logvar2.exp())
+
+                loss = loss1 + loss2 + beta_eff * (kl1 + kl2)
+                if base_model.use_agent:
+                    loss = loss + base_model.agent_regularization_loss(ctx)
+
+            else:
+                # NEW multi-cycle path (Experiment 4). See docstring for
+                # the detach rule: detach after every window EXCEPT a
+                # correction window, so gradient always flows from a
+                # correction event into exactly the one window that
+                # follows it, regardless of how many cycles n_cycles is.
+                current_ctx = ctx
+                offset      = seq_len
+                loss        = 0.0
+
+                for cycle in range(n_cycles):
+                    for w in range(windows_per_cycle):
+                        gt_w = torch.stack([traj_norm[s + offset:s + offset + pred_steps]
+                                            for s in starts])
+                        pred_w, mu_w, logvar_w, h_traj_w = base_model.forward_with_states(
+                            current_ctx, pred_steps)
+                        loss = loss + nn.functional.mse_loss(pred_w, gt_w)
+                        loss = loss + beta_eff * (-0.5 * torch.mean(
+                            1 + logvar_w - mu_w.pow(2) - logvar_w.exp()))
+                        if base_model.use_agent:
+                            loss = loss + base_model.agent_regularization_loss(current_ctx)
+
+                        is_correction_window = (w == windows_per_cycle - 1)
+                        next_window = pred_w
+                        if is_correction_window:
+                            last_pred   = pred_w[:, -1, :]
+                            last_real   = gt_w[:, -1, :]
+                            discrepancy = last_real - last_pred
+                            h_last      = h_traj_w[-1]
+                            gate = base_model.correction_gate(h_last, discrepancy)
+                            corrected_last = last_pred + gate * discrepancy
+                            next_window = torch.cat(
+                                [pred_w[:, :-1, :], corrected_last.unsqueeze(1)], dim=1)
+
+                        current_ctx = torch.cat(
+                            [current_ctx[:, pred_steps:, :], next_window], dim=1)
+                        offset += pred_steps
+
+                        if detach_between_cycles and not is_correction_window:
+                            current_ctx = current_ctx.detach()
+
+                # Final lookahead window, giving the LAST cycle's
+                # correction event its window of consequence too.
+                gt_final = torch.stack([traj_norm[s + offset:s + offset + lookahead_steps]
+                                        for s in starts])
+                pred_final, mu_f, logvar_f, _ = base_model.forward_with_states(
+                    current_ctx, lookahead_steps)
+                loss = loss + nn.functional.mse_loss(pred_final, gt_final)
+                loss = loss + beta_eff * (-0.5 * torch.mean(
+                    1 + logvar_f - mu_f.pow(2) - logvar_f.exp()))
+                if base_model.use_agent:
+                    loss = loss + base_model.agent_regularization_loss(current_ctx)
 
             loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
