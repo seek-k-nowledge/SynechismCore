@@ -1,16 +1,12 @@
-<!-- TEMP NOTICE - remove once full rewrite with final results is published -->
-> **Update (September 2026):** We identified a measurement flaw
-> affecting the long-horizon coherence claim in this paper (the
-> reported 19,940-step figure). Corrected methodology and re-verified
-> results are in progress. Coherence-related claims in the current
-> whitepaper PDF should be treated as under revision until an updated
-> version is published here.
+> **Status: results under revision.** The coherence metric was corrected, then a 380-step reporting floor was found. Floor-free results are being re-run. Older coherence numbers below are superseded.
 
 # SynechismCore v23.0.1
 
 **Latent Neural ODEs with Aperiodic φ-Scaling for Chaotic Dynamical Systems**
 Paul E. Harris IV · Independent Researcher, Mashantucket Pequot Nation
-github.com/seek-k-nowledge/SynechismCore · MIT License · Target: arXiv · ML4PS @ NeurIPS 2026
+github.com/seek-k-nowledge/SynechismCore · MIT License · Target: arXiv preprint, then a 2027 workshop
+
+**Research question:** when a chaotic forecast is periodically corrected with real observations, does the forecaster's architecture still matter? Compared: Latent Neural ODE (this repo), Transformer, Mamba, LSTM.
 
 ---
 
@@ -29,7 +25,7 @@ documented in the whitepaper §1. All six patches are applied in the code.
 Run this on a rented GPU to produce the results that fill the PENDING
 cells in the paper's tables.
 
-**Prior results (Kaggle):** saved in `results/kaggle_confirmed/`
+**Prior results (Kaggle):** listed in `CONFIRMED_RESULTS.txt` (coherence lines superseded)
 **Fresh run results:** will save to `results/fresh_run/`
 
 ---
@@ -105,45 +101,81 @@ and `make_robotics_dataset()` in `src/data.py`:
 
 ---
 
-## Confirmed Results (Kaggle Free Tier — What This Run Must Match)
+## Prior Results (Kaggle Free Tier)
 
 | Experiment | SynechismCore | Baseline | Ratio | Status |
 |---|---|---|---|---|
 | KS-PDE (ν: 1.0→0.5) | 0.2952±0.0021 | 0.4207 TF | **1.43×** | ✅ WIN |
 | Lorenz bifurcation (v17.2 vs LSTM) | 0.1269–0.8037 | 0.1772–0.8658 | **1.08–1.40×** | ✅ WIN |
-| Coherence | 19,940 steps | ~1,260 steps | **15.8×** | ✅ CONFIRMED |
-| φ significance | p=0.0000 | uniform | — | ✅ CONFIRMED |
+| Coherence (old metric) | 19,940 steps | ~1,260 steps | 15.8× | ⚠️ Superseded, under revision |
+| φ significance | p=0.0000 | uniform | — | ⚠️ Superseded, under revision |
 | Robotics | 12.8109 | 6.6470 TF | 0.52× | ❌ TF WINS |
 | Finance | 5.6783 | 5.8804 TF | 1.04× | ⚠️ MARGINAL |
 | Weather L96 | 1.0550 | 1.0508 TF | 1.00× | ⚠️ TIED |
+
+The coherence and φ-significance rows came from the old coherence measurement and are kept here for the record only.
+
+---
+
+## Current Results (Lorenz, 5 seeds, floor-limited)
+
+Steps until divergence under the corrected rolling-window metric, seeds 0–4
+(from [`results/periodic_correction_5seed_summary.md`](results/periodic_correction_5seed_summary.md),
+transcribed from the GPU run; raw log still to be pulled).
+
+| Condition | Mean ± Std (steps) | Seed 0 | Seed 1 | Seed 2 | Seed 3 | Seed 4 |
+|---|---|---|---|---|---|---|
+| v23_hybrid_zero (no correction) | 384.0 ± 8.9 | 380 | 400 | 380 | 380 | 380 |
+| v23_hybrid_fixed (fixed c = 0.8) | 464.0 ± 75.4 | 380 | 580 | 420 | 480 | 460 |
+| v23_hybrid_gated (learned gate) | 396.0 ± 26.1 | 380 | 400 | 440 | 380 | 380 |
+| v22_baseline_fixed (fixed c = 0.8) | 448.0 ± 87.9 | 600 | 400 | 440 | 420 | 380 |
+
+**Note:** this metric cannot report anything below 380 steps (it needs 20 full
+windows of 20 steps before it can flag divergence), so values of exactly 380 are
+floor-limited, not measured. A floor-free first-crossing VPT has been added to the
+head-to-head and gate-retrain tests and is being re-run.
+
+## Next
+
+1. Floor-free first-crossing VPT (VPT at 0.3 and 0.4, with censoring) for all coherence results.
+2. Head-to-head: Latent Neural ODE vs Transformer, Mamba and LSTM under identical correction.
+3. Gate retrain across full correction cycles.
+4. More systems (KS, Weather, Robotics) — needs new coherence-test code; scope decided at the budget checkpoint.
+5. arXiv write-up, then a 2027 workshop submission.
 
 ---
 
 ## File Structure
 
 ```
-synechism_v23_patched/
+SynechismCore/
 ├── src/
 │   ├── models.py            # v22: SynechismV20, FairTransformer, FairLSTM, FairMamba
-│   ├── v23_components.py    # v23.0.1 (all 4 code patches applied)
+│   ├── v23_components.py    # v23.0.1 components, SynechismV23, CorrectionGate
 │   ├── chaotic_metrics.py   # VPT, nRMSE, sMAPE for SOTA comparison
-│   ├── data.py              # 5 experiment data generators
-│   ├── train.py             # Training loop, evaluate_model
-│   ├── stats.py             # Correct Mann-Whitney U significance
+│   ├── data.py              # Experiment data generators
+│   ├── train.py             # Training loops, evaluate_model
+│   ├── stats.py             # Mann-Whitney U significance
 │   ├── quantum_lattice.py   # PhiLattice, FibonacciLattice, HaltonLattice
 │   ├── hyperagent.py        # Event detector + jump correction
 │   ├── hyevo.py             # Evolutionary hyperparameter search
 │   └── __init__.py
-├── run_experiments.py       # Full v22 5-experiment benchmark (unchanged)
+├── diagnostics/             # VPT and data-stability diagnosis scripts and notes
+├── paper/
+│   └── SynechismCore_v23_whitepaper.pdf   # coherence claims under revision
+├── results/
+│   ├── kaggle_confirmed/    # Placeholder (prior Kaggle numbers are in CONFIRMED_RESULTS.txt)
+│   ├── fresh_run/           # Benchmark JSON output (git-ignored)
+│   └── periodic_correction_5seed_summary.md
+├── run_experiments.py       # Original v22 5-experiment benchmark
 ├── run_phi_ablation.py      # φ vs √2 vs e ablation
-├── run_v23_benchmark.py     # v23 vs v22 + coherence test (P6 applied)
-├── launch_h100.py           # Master launcher (P5 applied)
+├── run_v23_benchmark.py     # v23 benchmark + coherence tests (incl. head-to-head, gate retrain)
+├── launch_h100.py           # Master launcher
 ├── requirements.txt
-├── COMPETITORS.md           # 2026 SOTA reference values
-├── SynechismCore_v23_whitepaper.docx
-└── results/
-    ├── kaggle_confirmed/    # Prior confirmed results (reference)
-    └── fresh_run/           # New results go here
+├── COMPETITORS.md           # SOTA reference values
+├── CONFIRMED_RESULTS.txt    # Prior Kaggle results (coherence lines superseded)
+├── PAPER_SCOPE.md           # Scope lock for the current paper
+└── RESULTS_LOG.md           # Running log of GPU runs
 ```
 
 ---
@@ -228,23 +260,18 @@ Memory: 79.9 GB
 pip install torchdiffeq scipy matplotlib pandas -q
 ```
 
-### Upload your zip (open a NEW terminal on your laptop)
-```bash
-scp ~/Downloads/SynechismCore_v23_FRESH_patched.zip ubuntu@YOUR_IP:/home/ubuntu/
-```
-
-Replace `~/Downloads/` with wherever you saved the file.
-
-### Extract on the server
+### Get the code (on the server)
 ```bash
 cd /home/ubuntu
-unzip SynechismCore_v23_FRESH_patched.zip
-cd synechism_v23_patched
+git clone https://github.com/seek-k-nowledge/SynechismCore.git
+cd SynechismCore
 ls
 ```
 
 You should see: `launch_h100.py  run_experiments.py  run_phi_ablation.py
-run_v23_benchmark.py  src/  results/`
+run_v23_benchmark.py  src/  results/  diagnostics/  paper/`
+
+To update an existing copy later: `cd /home/ubuntu/SynechismCore && git pull`
 
 ---
 
@@ -308,7 +335,7 @@ python run_v23_benchmark.py \
 ### Download results to your laptop
 Open a NEW terminal window on your laptop:
 ```bash
-scp -r ubuntu@YOUR_IP:/home/ubuntu/synechism_v23_patched/results/ ~/Desktop/synechism_results/
+scp -r ubuntu@YOUR_IP:/home/ubuntu/SynechismCore/results/ ~/Desktop/synechism_results/
 ```
 
 Verify the JSON files are on your Desktop before the next step.

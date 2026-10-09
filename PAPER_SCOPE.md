@@ -7,8 +7,9 @@ DONE: (1) corrected coherence metric; (2) Exp 1 zero-correction ceiling,
 6 architectures, ~380-460 steps; (3) Exp 2 correction strategies (table above).
 TO RUN: Exp 3 head-to-head, all architectures under identical fixed 0.8
 correction; Exp 4 gate retrain (log gate outputs, start at 0.8, train across
-full correction cycles); then KS, Weather, Robotics re-runs under the corrected
-metric. Budget checkpoint after the first Lorenz session before the others.
+full correction cycles). KS, Weather and Robotics need NEW coherence-test code
+(the coherence test currently exists only for Lorenz); whether they are in
+scope is decided at the budget checkpoint after the first Lorenz session.
 OUT OF SCOPE (future work): Finance; WP-NODE-style comparison (noise sweep, KL
 divergence, Lorenz-96, ERA5); dysts 135-system benchmark; per-component
 ablations; uncertainty calibration; Lyapunov-loss rebuild.
