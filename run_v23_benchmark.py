@@ -854,8 +854,8 @@ class _FirstCrossingVPT:
                  steps predicted before the error first exceeds th.
       Censoring: if e(t) never exceeds th within the evaluated horizon,
                  VPT(th) = horizon (number of steps evaluated) and
-                 censored = True. Censored runs are never pooled with
-                 uncensored ones in summaries.
+                 censored = True. Summaries count censored runs at their
+                 horizon as lower bounds (see _summarize_vpt).
     """
 
     def __init__(self, traj_norm, device, thresholds=VPT_FIRST_CROSSING_THRESHOLDS):
@@ -900,17 +900,44 @@ class _FirstCrossingVPT:
 
 
 def _summarize_vpt(results, key_field, dt, thresholds=VPT_FIRST_CROSSING_THRESHOLDS):
-    """Per-condition VPT summary over UNCENSORED runs only; censored runs listed separately."""
+    """Per-condition VPT summary. Censored runs are never silently dropped.
+
+    For each condition and threshold:
+      n                       all runs
+      n_uncensored/n_censored runs that did / did not cross the threshold
+      median_steps            median over ALL runs, censored runs counted at
+                              their horizon (valid as long as fewer than half
+                              are censored; otherwise it is itself a lower bound)
+      median_is_lower_bound   True when half or more of the runs are censored
+      lower_bound_mean_steps  mean over ALL runs with censored runs counted at
+                              their horizon. The true mean is >= this value
+                              whenever any run is censored.
+      mean_steps / std_steps  mean and std (ddof=1) over UNCENSORED runs only
+                              (kept for reference; biased low if the best runs
+                              are the censored ones)
+    """
     summary = {}
     names = sorted({r[key_field] for r in results}, key=lambda n: [r[key_field] for r in results].index(n))
     for name in names:
         rows = [r for r in results if r[key_field] == name]
         summary[name] = {}
         for th in thresholds:
+            all_steps = np.asarray([r[f'vpt_{th}_steps'] for r in rows], dtype=float)
             unc = [r[f'vpt_{th}_steps'] for r in rows if not r[f'vpt_{th}_censored']]
             cen = [(r['seed'], r[f'vpt_{th}_steps']) for r in rows if r[f'vpt_{th}_censored']]
-            s = {'n_uncensored': len(unc), 'n_censored': len(cen),
+            s = {'n': len(rows), 'n_uncensored': len(unc), 'n_censored': len(cen),
                  'censored_runs_seed_horizon': cen}
+            if len(all_steps):
+                med = float(np.median(all_steps))
+                lb_mean = float(all_steps.mean())
+                s.update({
+                    'median_steps': med,
+                    'median_lyapunov_times': float(steps_to_lyapunov_times(med, dt)),
+                    'median_is_lower_bound': bool(len(cen) * 2 >= len(rows)),
+                    'lower_bound_mean_steps': lb_mean,
+                    'lower_bound_mean_lyapunov_times': float(steps_to_lyapunov_times(lb_mean, dt)),
+                    'lower_bound_mean_is_exact': len(cen) == 0,
+                })
             if unc:
                 arr = np.asarray(unc, dtype=float)
                 std = _std_ddof1(arr)
@@ -927,20 +954,22 @@ def _summarize_vpt(results, key_field, dt, thresholds=VPT_FIRST_CROSSING_THRESHO
 
 def _print_vpt_summary(vpt_summary, label_width, thresholds=VPT_FIRST_CROSSING_THRESHOLDS):
     for th in thresholds:
-        print(f"\n  First-crossing VPT({th}) — uncensored runs only (std ddof=1)")
-        print(f"  {'Condition':<{label_width}}  {'n':>3}  {'cens':>4}  {'Mean steps':>10}  "
-              f"{'Std':>8}  {'Mean TL':>8}  {'Std TL':>7}  {'Min':>6}  {'Max':>6}")
+        print(f"\n  First-crossing VPT({th}) — all runs; censored runs counted at their horizon")
+        print(f"  {'Condition':<{label_width}}  {'n':>3}  {'cens':>4}  {'Median':>9}  "
+              f"{'LB mean':>9}  {'Med TL':>7}  | {'Unc mean':>9}  {'Unc std':>8}")
         for name, per_th in vpt_summary.items():
             s = per_th[str(th)]
+            med = f"{s['median_steps']:>9.1f}" + ("+" if s['median_is_lower_bound'] else " ")
+            lb = f"{s['lower_bound_mean_steps']:>9.1f}" + (" " if s['lower_bound_mean_is_exact'] else "+")
             if s['n_uncensored']:
-                print(f"  {name:<{label_width}}  {s['n_uncensored']:>3}  {s['n_censored']:>4}  "
-                      f"{s['mean_steps']:>10.1f}  {_fmt_opt(s['std_steps'], '>8.1f')}  "
-                      f"{s['mean_lyapunov_times']:>8.2f}  {_fmt_opt(s['std_lyapunov_times'], '>7.2f')}  "
-                      f"{s['min_steps']:>6}  {s['max_steps']:>6}")
+                unc = f"{s['mean_steps']:>9.1f}  {_fmt_opt(s['std_steps'], '>8.1f')}"
             else:
-                print(f"  {name:<{label_width}}  {0:>3}  {s['n_censored']:>4}  (all runs censored)")
+                unc = f"{'(none)':>9}  {'':>8}"
+            print(f"  {name:<{label_width}}  {s['n']:>3}  {s['n_censored']:>4}  {med[:-1]}{med[-1]} "
+                  f"{lb[:-1]}{lb[-1]} {s['median_lyapunov_times']:>6.2f}  | {unc}")
             for seed_val, horizon in s['censored_runs_seed_horizon']:
                 print(f"      censored: seed={seed_val} never crossed {th} within {horizon:,} steps")
+        print("  '+' = lower bound (censored runs present).  'Unc' = uncensored runs only, for reference.")
 
 
 def run_coherence_test_head_to_head(max_steps=1_000_000, seeds=None,
@@ -989,7 +1018,7 @@ def run_coherence_test_head_to_head(max_steps=1_000_000, seeds=None,
                    exceedance).
          If e(t) never exceeds th within the evaluated horizon, VPT(th) =
          horizon (steps evaluated) and censored = True; censored runs are
-         reported separately, never pooled with uncensored ones.
+         counted at their horizon in the median and lower-bound mean (labeled as lower bounds), and listed separately.
        The rollout keeps running after the rolling-window metric stops
        (rolling_window_steps is frozen at its stop value) until VPT(0.4)
        has crossed or the horizon ends, so VPT is not cut short by the
@@ -1153,6 +1182,9 @@ def run_coherence_test_head_to_head(max_steps=1_000_000, seeds=None,
                       f"({lyap_times:.2f} TL)  ({stopped_reason})")
 
                 vpt_res = vpt.results(dt)
+                vpt_status = ("vpt_censored" if any(vpt_res[f'vpt_{th}_censored']
+                                                    for th in VPT_FIRST_CROSSING_THRESHOLDS)
+                              else "vpt_crossed")
                 series_path = vpt.save_series(
                     f'./results/coherence/error_series/head_to_head/{name}_seed{seed}.npy')
                 vpt_str = "  ".join(
@@ -1160,7 +1192,7 @@ def run_coherence_test_head_to_head(max_steps=1_000_000, seeds=None,
                     f"({vpt_res[f'vpt_{th}_lyapunov_times']:.2f} TL)"
                     + (" [CENSORED]" if vpt_res[f'vpt_{th}_censored'] else "")
                     for th in VPT_FIRST_CROSSING_THRESHOLDS)
-                print(f"        {vpt_str}")
+                print(f"        {vpt_str}  ({vpt_status})")
 
                 all_results.append({
                     'architecture': arch,
@@ -1171,6 +1203,7 @@ def run_coherence_test_head_to_head(max_steps=1_000_000, seeds=None,
                     'coherent_steps': coherent_steps,
                     'coherent_lyapunov_times': lyap_times,
                     'stopped_reason': stopped_reason,
+                    'vpt_status': vpt_status,
                     'needs_manual_review': needs_review,
                     **vpt_res,
                     'error_series_path': series_path,
@@ -1232,7 +1265,9 @@ def run_coherence_test_head_to_head(max_steps=1_000_000, seeds=None,
                     'verify they are genuinely coherent, not metric blind spots. '
                     'rolling_window_steps has a 380-step reporting floor; '
                     'first-crossing VPT is floor-free (see function docstring). '
-                    'Censored VPT runs are excluded from VPT means. Std uses ddof=1.'
+                    'Censored VPT runs are counted at their horizon in median_steps and '
+                    'lower_bound_mean_steps (lower bounds); mean_steps/std_steps are '
+                    'uncensored-only, for reference. Std uses ddof=1.'
         }, f, indent=2)
     print(f"\n  Saved: ./results/coherence/coherence_head_to_head_results.json")
     return all_results, summary
@@ -1304,7 +1339,7 @@ def run_coherence_test_gate_retrain(max_steps=1_000_000, seeds=None,
                    exceedance).
          If e(t) never exceeds th within the evaluated horizon, VPT(th) =
          horizon (steps evaluated) and censored = True; censored runs are
-         reported separately, never pooled with uncensored ones.
+         counted at their horizon in the median and lower-bound mean (labeled as lower bounds), and listed separately.
        The rollout keeps running after the rolling-window metric stops
        (rolling_window_steps is frozen at its stop value) until VPT(0.4)
        has crossed or the horizon ends. The full e(t) series of every run
@@ -1480,6 +1515,9 @@ def run_coherence_test_gate_retrain(max_steps=1_000_000, seeds=None,
                   f"gate[mean/min/max]={gate_mean:.3f}/{gate_min:.3f}/{gate_max:.3f}  ({stopped_reason})")
 
             vpt_res = vpt.results(dt)
+            vpt_status = ("vpt_censored" if any(vpt_res[f'vpt_{th}_censored']
+                                                for th in VPT_FIRST_CROSSING_THRESHOLDS)
+                          else "vpt_crossed")
             series_path = vpt.save_series(
                 f'./results/coherence/error_series/gate_retrain/{cname}_seed{seed}.npy')
             vpt_str = "  ".join(
@@ -1487,7 +1525,7 @@ def run_coherence_test_gate_retrain(max_steps=1_000_000, seeds=None,
                 f"({vpt_res[f'vpt_{th}_lyapunov_times']:.2f} TL)"
                 + (" [CENSORED]" if vpt_res[f'vpt_{th}_censored'] else "")
                 for th in VPT_FIRST_CROSSING_THRESHOLDS)
-            print(f"        {vpt_str}")
+            print(f"        {vpt_str}  ({vpt_status})")
 
             all_results.append({
                 'condition': cname,
@@ -1498,6 +1536,7 @@ def run_coherence_test_gate_retrain(max_steps=1_000_000, seeds=None,
                 'coherent_steps': coherent_steps,
                 'coherent_lyapunov_times': lyap_times,
                 'stopped_reason': stopped_reason,
+                'vpt_status': vpt_status,
                 'needs_manual_review': needs_review,
                 'n_correction_steps': len(gate_log),
                 'gate_values': gate_log,
@@ -1556,7 +1595,9 @@ def run_coherence_test_gate_retrain(max_steps=1_000_000, seeds=None,
             'vpt_thresholds': list(VPT_FIRST_CROSSING_THRESHOLDS),
             'note': 'rolling_window_steps has a 380-step reporting floor; '
                     'first-crossing VPT is floor-free (see function docstring). '
-                    'Censored VPT runs are excluded from VPT means. Std uses ddof=1.',
+                    'Censored VPT runs are counted at their horizon in median_steps and '
+                    'lower_bound_mean_steps (lower bounds); mean_steps/std_steps are '
+                    'uncensored-only, for reference. Std uses ddof=1.',
         }, f, indent=2)
     print(f"\n  Saved: ./results/coherence/coherence_gate_retrain_results.json")
     return all_results, summary
