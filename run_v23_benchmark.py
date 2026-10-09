@@ -820,6 +820,129 @@ def steps_to_lyapunov_times(steps, dt, lyapunov_exponent=LORENZ63_LYAPUNOV_EXPON
     return steps * lyapunov_exponent * dt
 
 
+# ── First-crossing VPT helpers (used only by run_coherence_test_head_to_head
+#    and run_coherence_test_gate_retrain) ────────────────────────────────────
+VPT_FIRST_CROSSING_THRESHOLDS = (0.3, 0.4)
+
+
+def _std_ddof1(values):
+    """Sample standard deviation (ddof=1); None when fewer than 2 values."""
+    arr = np.asarray(values, dtype=float)
+    return float(arr.std(ddof=1)) if arr.size >= 2 else None
+
+
+def _fmt_opt(x, spec):
+    return format(x, spec) if x is not None else format('n/a', '>' + spec.split('.')[0].lstrip('>'))
+
+
+class _FirstCrossingVPT:
+    """
+    Per-step first-crossing valid prediction time (VPT) tracker.
+
+    Definition (exact):
+      sigma_d  = per-dimension standard deviation (ddof=1) of traj_norm[:5000]
+                 (the normalized trajectory's first 5000 steps; fewer if the
+                 trajectory is shorter).
+      e(t)     = sqrt( mean over dimensions d of ((pred_t[d] - truth_t[d]) / sigma_d[d])^2 )
+                 for every individual rollout step t = 0, 1, 2, ... (t = 0 is
+                 the first predicted step, truth index seq_len + t). pred_t is
+                 the model's emitted prediction for step t, BEFORE any
+                 correction is blended into the next context window. A
+                 non-finite e(t) (NaN/inf prediction) is treated as +inf,
+                 i.e. as an exceedance.
+      VPT(th)  = the first step t at which e(t) > th, i.e. the number of
+                 steps predicted before the error first exceeds th.
+      Censoring: if e(t) never exceeds th within the evaluated horizon,
+                 VPT(th) = horizon (number of steps evaluated) and
+                 censored = True. Censored runs are never pooled with
+                 uncensored ones in summaries.
+    """
+
+    def __init__(self, traj_norm, device, thresholds=VPT_FIRST_CROSSING_THRESHOLDS):
+        self.sigma_d = traj_norm[:5000].std(0, unbiased=True).clamp(min=1e-8).to(device)
+        self.thresholds = tuple(thresholds)
+        self.first_cross = {th: None for th in self.thresholds}
+        self.chunks = []
+        self.n_steps = 0
+
+    def update(self, pred, gt):
+        e = torch.sqrt((((pred - gt) / self.sigma_d) ** 2).mean(dim=-1))
+        e = e.detach().cpu().numpy().astype(np.float64)
+        e = np.where(np.isfinite(e), e, np.inf)
+        for th in self.thresholds:
+            if self.first_cross[th] is None:
+                idx = np.nonzero(e > th)[0]
+                if idx.size:
+                    self.first_cross[th] = self.n_steps + int(idx[0])
+        self.chunks.append(e.astype(np.float32))
+        self.n_steps += len(e)
+
+    def all_crossed(self):
+        return all(v is not None for v in self.first_cross.values())
+
+    def series(self):
+        return np.concatenate(self.chunks) if self.chunks else np.zeros(0, dtype=np.float32)
+
+    def results(self, dt):
+        out = {'vpt_horizon_steps': self.n_steps}
+        for th in self.thresholds:
+            censored = self.first_cross[th] is None
+            steps = self.n_steps if censored else self.first_cross[th]
+            out[f'vpt_{th}_steps'] = int(steps)
+            out[f'vpt_{th}_lyapunov_times'] = float(steps_to_lyapunov_times(steps, dt))
+            out[f'vpt_{th}_censored'] = bool(censored)
+        return out
+
+    def save_series(self, path):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        np.save(path, self.series())
+        return path
+
+
+def _summarize_vpt(results, key_field, dt, thresholds=VPT_FIRST_CROSSING_THRESHOLDS):
+    """Per-condition VPT summary over UNCENSORED runs only; censored runs listed separately."""
+    summary = {}
+    names = sorted({r[key_field] for r in results}, key=lambda n: [r[key_field] for r in results].index(n))
+    for name in names:
+        rows = [r for r in results if r[key_field] == name]
+        summary[name] = {}
+        for th in thresholds:
+            unc = [r[f'vpt_{th}_steps'] for r in rows if not r[f'vpt_{th}_censored']]
+            cen = [(r['seed'], r[f'vpt_{th}_steps']) for r in rows if r[f'vpt_{th}_censored']]
+            s = {'n_uncensored': len(unc), 'n_censored': len(cen),
+                 'censored_runs_seed_horizon': cen}
+            if unc:
+                arr = np.asarray(unc, dtype=float)
+                std = _std_ddof1(arr)
+                s.update({
+                    'mean_steps': float(arr.mean()), 'std_steps': std,
+                    'min_steps': int(arr.min()), 'max_steps': int(arr.max()),
+                    'mean_lyapunov_times': float(steps_to_lyapunov_times(arr.mean(), dt)),
+                    'std_lyapunov_times': (float(steps_to_lyapunov_times(std, dt))
+                                           if std is not None else None),
+                })
+            summary[name][str(th)] = s
+    return summary
+
+
+def _print_vpt_summary(vpt_summary, label_width, thresholds=VPT_FIRST_CROSSING_THRESHOLDS):
+    for th in thresholds:
+        print(f"\n  First-crossing VPT({th}) — uncensored runs only (std ddof=1)")
+        print(f"  {'Condition':<{label_width}}  {'n':>3}  {'cens':>4}  {'Mean steps':>10}  "
+              f"{'Std':>8}  {'Mean TL':>8}  {'Std TL':>7}  {'Min':>6}  {'Max':>6}")
+        for name, per_th in vpt_summary.items():
+            s = per_th[str(th)]
+            if s['n_uncensored']:
+                print(f"  {name:<{label_width}}  {s['n_uncensored']:>3}  {s['n_censored']:>4}  "
+                      f"{s['mean_steps']:>10.1f}  {_fmt_opt(s['std_steps'], '>8.1f')}  "
+                      f"{s['mean_lyapunov_times']:>8.2f}  {_fmt_opt(s['std_lyapunov_times'], '>7.2f')}  "
+                      f"{s['min_steps']:>6}  {s['max_steps']:>6}")
+            else:
+                print(f"  {name:<{label_width}}  {0:>3}  {s['n_censored']:>4}  (all runs censored)")
+            for seed_val, horizon in s['censored_runs_seed_horizon']:
+                print(f"      censored: seed={seed_val} never crossed {th} within {horizon:,} steps")
+
+
 def run_coherence_test_head_to_head(max_steps=1_000_000, seeds=None,
                                      correction_interval=40, fixed_c=0.8):
     """
@@ -843,9 +966,42 @@ def run_coherence_test_head_to_head(max_steps=1_000_000, seeds=None,
     correction_interval boundary. Divergence criterion (normalized
     RMSE/window_std vs 0.4, rolling window >50% of last 20) is the exact
     same corrected metric.
+
+    TWO METRICS are reported per run:
+
+    1. rolling_window_steps (unchanged; also stored as coherent_steps for
+       backward compatibility): per 20-step window, normalized error =
+       RMSE(pred, truth) / std(truth window); the run "diverges" once the
+       last 20 windows are full and >50% of them exceed 0.4.
+       coherent_steps grows by 20 only after a window passes that check,
+       so the smallest reportable value is 19 x 20 = 380 steps (a floor).
+
+    2. First-crossing VPT (floor-free), computed per time step:
+         sigma_d = per-dimension standard deviation (ddof=1) of
+                   traj_norm[:5000].
+         e(t)    = sqrt(mean_d(((pred_t[d] - truth_t[d]) / sigma_d[d])^2))
+                   for every rollout step t = 0, 1, 2, ... (t = 0 is the
+                   first predicted step); pred_t is the emitted prediction
+                   before any correction is blended into the next context.
+                   Non-finite e(t) counts as +inf (an exceedance).
+         VPT(th) = the first step t where e(t) > th, for th = 0.3 and 0.4
+                   (= number of steps predicted before the first
+                   exceedance).
+         If e(t) never exceeds th within the evaluated horizon, VPT(th) =
+         horizon (steps evaluated) and censored = True; censored runs are
+         reported separately, never pooled with uncensored ones.
+       The rollout keeps running after the rolling-window metric stops
+       (rolling_window_steps is frozen at its stop value) until VPT(0.4)
+       has crossed or the horizon ends, so VPT is not cut short by the
+       rolling metric. The full e(t) series of every run is saved to
+       results/coherence/error_series/head_to_head/<arch>_<mode>_seed<seed>.npy.
+       VPT is reported in steps and in Lyapunov times via
+       steps_to_lyapunov_times() (~55 steps per Lyapunov time at dt=0.02).
+       All summary standard deviations use ddof=1 (None when n < 2).
     """
     if seeds is None:
         seeds = [42]
+    from v23_components import SynechismV23
 
     VPT_NORM_THRESHOLD = 0.4
     DIVERGENCE_WINDOW_SIZE = 20
@@ -909,10 +1065,13 @@ def run_coherence_test_head_to_head(max_steps=1_000_000, seeds=None,
             model = trained[arch]
             base  = get_base_model(model)
             model.eval()
-            # Duck-typing matches run_coherence_test()'s original convention:
             # SynechismV23 models (v23_hybrid, v22_baseline) return a 3-tuple;
-            # the plain baselines (lstm, transformer, mamba) return a bare tensor.
-            is_synechism = hasattr(base, 'ode_func') or hasattr(base, 'encoder')
+            # the plain baselines (lstm, transformer, mamba) return a bare
+            # tensor. isinstance instead of attribute duck-typing: an
+            # `encoder` attribute is not a safe marker (FairTransformer's
+            # encoder stack is named `transformer`, not `encoder`, today,
+            # but nothing guarantees that).
+            is_synechism = isinstance(base, SynechismV23)
 
             for mode in CORRECTION_MODES:
                 name = f"{arch}_{mode}"
@@ -921,6 +1080,8 @@ def run_coherence_test_head_to_head(max_steps=1_000_000, seeds=None,
                 recent_windows = deque(maxlen=DIVERGENCE_WINDOW_SIZE)
                 step = 0
                 stopped_reason = None
+                rolling_stopped = False
+                vpt = _FirstCrossingVPT(traj_norm, DEVICE)
                 step_start_time = time.time()
 
                 with torch.no_grad():
@@ -937,18 +1098,28 @@ def run_coherence_test_head_to_head(max_steps=1_000_000, seeds=None,
                             break
                         gt = traj_norm[gt_start:gt_end].to(DEVICE)
 
-                        window_std = gt.std().item()
-                        if window_std < 1e-8:
-                            window_std = 1.0
-                        normalized_error = torch.sqrt(((pred - gt) ** 2).mean()).item() / window_std
+                        vpt.update(pred, gt)
 
-                        recent_windows.append(normalized_error > VPT_NORM_THRESHOLD)
-                        if (len(recent_windows) == DIVERGENCE_WINDOW_SIZE and
-                                sum(recent_windows) / DIVERGENCE_WINDOW_SIZE > DIVERGENCE_FRACTION_THRESHOLD):
-                            stopped_reason = "diverged"
+                        if not rolling_stopped:
+                            window_std = gt.std().item()
+                            if window_std < 1e-8:
+                                window_std = 1.0
+                            normalized_error = torch.sqrt(((pred - gt) ** 2).mean()).item() / window_std
+
+                            recent_windows.append(normalized_error > VPT_NORM_THRESHOLD)
+                            if (len(recent_windows) == DIVERGENCE_WINDOW_SIZE and
+                                    sum(recent_windows) / DIVERGENCE_WINDOW_SIZE > DIVERGENCE_FRACTION_THRESHOLD):
+                                stopped_reason = "diverged"
+                                rolling_stopped = True
+
+                        # Stop once the rolling metric has stopped AND every
+                        # VPT threshold has crossed; otherwise keep rolling
+                        # out (rolling_window_steps stays frozen).
+                        if rolling_stopped and vpt.all_crossed():
                             break
 
-                        coherent_steps += pred_steps
+                        if not rolling_stopped:
+                            coherent_steps += pred_steps
                         step           += pred_steps
 
                         next_window = pred.clone()
@@ -981,14 +1152,28 @@ def run_coherence_test_head_to_head(max_steps=1_000_000, seeds=None,
                 print(f"    {mark} {name:<20}  {coherent_steps:>8,} steps  "
                       f"({lyap_times:.2f} TL)  ({stopped_reason})")
 
+                vpt_res = vpt.results(dt)
+                series_path = vpt.save_series(
+                    f'./results/coherence/error_series/head_to_head/{name}_seed{seed}.npy')
+                vpt_str = "  ".join(
+                    f"VPT({th})={vpt_res[f'vpt_{th}_steps']:,} steps "
+                    f"({vpt_res[f'vpt_{th}_lyapunov_times']:.2f} TL)"
+                    + (" [CENSORED]" if vpt_res[f'vpt_{th}_censored'] else "")
+                    for th in VPT_FIRST_CROSSING_THRESHOLDS)
+                print(f"        {vpt_str}")
+
                 all_results.append({
                     'architecture': arch,
                     'correction_mode': mode,
+                    'condition': name,
                     'seed': seed,
+                    'rolling_window_steps': coherent_steps,
                     'coherent_steps': coherent_steps,
                     'coherent_lyapunov_times': lyap_times,
                     'stopped_reason': stopped_reason,
                     'needs_manual_review': needs_review,
+                    **vpt_res,
+                    'error_series_path': series_path,
                 })
                 per_condition_steps[name].append((coherent_steps, needs_review))
 
@@ -1011,13 +1196,13 @@ def run_coherence_test_head_to_head(max_steps=1_000_000, seeds=None,
     for name in per_condition_steps:
         if normal_steps[name]:
             arr = np.array(normal_steps[name])
-            mean, std = arr.mean(), arr.std()
+            mean, std = arr.mean(), _std_ddof1(arr)
             min_val, max_val = arr.min(), arr.max()
             mean_lt = steps_to_lyapunov_times(mean, dt)
-            summary[name] = {'mean': float(mean), 'std': float(std),
+            summary[name] = {'mean': float(mean), 'std': std,
                              'min': int(min_val), 'max': int(max_val),
                              'mean_lyapunov_times': float(mean_lt)}
-            print(f"  {name:<24}  {mean:>12.1f}  {std:>10.1f}  {mean_lt:>10.2f}  {min_val:>8}  {max_val:>8}")
+            print(f"  {name:<24}  {mean:>12.1f}  {_fmt_opt(std, '>10.1f')}  {mean_lt:>10.2f}  {min_val:>8}  {max_val:>8}")
 
     has_review_cases = any(review_steps.values())
     if has_review_cases:
@@ -1025,6 +1210,9 @@ def run_coherence_test_head_to_head(max_steps=1_000_000, seeds=None,
         for name in per_condition_steps:
             for seed_val, s in review_steps[name]:
                 print(f"  {name:<24}  seed={seed_val:>3}  {s:>10,} steps  ← verify")
+
+    vpt_summary = _summarize_vpt(all_results, 'condition', dt)
+    _print_vpt_summary(vpt_summary, 24)
 
     os.makedirs('./results/coherence', exist_ok=True)
     with open('./results/coherence/coherence_head_to_head_results.json', 'w') as f:
@@ -1037,8 +1225,14 @@ def run_coherence_test_head_to_head(max_steps=1_000_000, seeds=None,
             'fixed_c': fixed_c,
             'individual_results': all_results,
             'summary': summary,
+            'summary_rolling_window_steps': summary,
+            'summary_first_crossing_vpt': vpt_summary,
+            'vpt_thresholds': list(VPT_FIRST_CROSSING_THRESHOLDS),
             'note': 'Results with needs_manual_review=true hit the --max-steps ceiling; '
-                    'verify they are genuinely coherent, not metric blind spots.'
+                    'verify they are genuinely coherent, not metric blind spots. '
+                    'rolling_window_steps has a 380-step reporting floor; '
+                    'first-crossing VPT is floor-free (see function docstring). '
+                    'Censored VPT runs are excluded from VPT means. Std uses ddof=1.'
         }, f, indent=2)
     print(f"\n  Saved: ./results/coherence/coherence_head_to_head_results.json")
     return all_results, summary
@@ -1084,7 +1278,41 @@ def run_coherence_test_gate_retrain(max_steps=1_000_000, seeds=None,
     Gate-value logging (NEW for this experiment): the gate's actual
     output (sigmoid, in [0,1]) is recorded at every correction step, for
     every seed (not just seed 0), stored per-step in individual_results
-    and summarized as mean/min/max per (condition, seed).
+    and summarized as mean/min/max per (condition, seed). Gate values are
+    logged only while the rolling-window metric is still running, so the
+    logged gate statistics cover the same span as before.
+
+    TWO METRICS are reported per run:
+
+    1. rolling_window_steps (unchanged; also stored as coherent_steps for
+       backward compatibility): per 20-step window, normalized error =
+       RMSE(pred, truth) / std(truth window); the run "diverges" once the
+       last 20 windows are full and >50% of them exceed 0.4.
+       coherent_steps grows by 20 only after a window passes that check,
+       so the smallest reportable value is 19 x 20 = 380 steps (a floor).
+
+    2. First-crossing VPT (floor-free), computed per time step:
+         sigma_d = per-dimension standard deviation (ddof=1) of
+                   traj_norm[:5000].
+         e(t)    = sqrt(mean_d(((pred_t[d] - truth_t[d]) / sigma_d[d])^2))
+                   for every rollout step t = 0, 1, 2, ... (t = 0 is the
+                   first predicted step); pred_t is the emitted prediction
+                   before any correction is blended into the next context.
+                   Non-finite e(t) counts as +inf (an exceedance).
+         VPT(th) = the first step t where e(t) > th, for th = 0.3 and 0.4
+                   (= number of steps predicted before the first
+                   exceedance).
+         If e(t) never exceeds th within the evaluated horizon, VPT(th) =
+         horizon (steps evaluated) and censored = True; censored runs are
+         reported separately, never pooled with uncensored ones.
+       The rollout keeps running after the rolling-window metric stops
+       (rolling_window_steps is frozen at its stop value) until VPT(0.4)
+       has crossed or the horizon ends. The full e(t) series of every run
+       is saved to
+       results/coherence/error_series/gate_retrain/<condition>_seed<seed>.npy.
+       VPT is reported in steps and in Lyapunov times via
+       steps_to_lyapunov_times() (~55 steps per Lyapunov time at dt=0.02).
+       All summary standard deviations use ddof=1 (None when n < 2).
     """
     if seeds is None:
         seeds = [42]
@@ -1170,6 +1398,8 @@ def run_coherence_test_gate_retrain(max_steps=1_000_000, seeds=None,
             recent_windows = deque(maxlen=DIVERGENCE_WINDOW_SIZE)
             step = 0
             stopped_reason = None
+            rolling_stopped = False
+            vpt = _FirstCrossingVPT(traj_norm, DEVICE)
             step_start_time = time.time()
             gate_log = []  # every gate value at every correction step, this seed
 
@@ -1185,18 +1415,28 @@ def run_coherence_test_gate_retrain(max_steps=1_000_000, seeds=None,
                         break
                     gt = traj_norm[gt_start:gt_end].to(DEVICE)
 
-                    window_std = gt.std().item()
-                    if window_std < 1e-8:
-                        window_std = 1.0
-                    normalized_error = torch.sqrt(((pred - gt) ** 2).mean()).item() / window_std
+                    vpt.update(pred, gt)
 
-                    recent_windows.append(normalized_error > VPT_NORM_THRESHOLD)
-                    if (len(recent_windows) == DIVERGENCE_WINDOW_SIZE and
-                            sum(recent_windows) / DIVERGENCE_WINDOW_SIZE > DIVERGENCE_FRACTION_THRESHOLD):
-                        stopped_reason = "diverged"
+                    if not rolling_stopped:
+                        window_std = gt.std().item()
+                        if window_std < 1e-8:
+                            window_std = 1.0
+                        normalized_error = torch.sqrt(((pred - gt) ** 2).mean()).item() / window_std
+
+                        recent_windows.append(normalized_error > VPT_NORM_THRESHOLD)
+                        if (len(recent_windows) == DIVERGENCE_WINDOW_SIZE and
+                                sum(recent_windows) / DIVERGENCE_WINDOW_SIZE > DIVERGENCE_FRACTION_THRESHOLD):
+                            stopped_reason = "diverged"
+                            rolling_stopped = True
+
+                    # Stop once the rolling metric has stopped AND every VPT
+                    # threshold has crossed; otherwise keep rolling out
+                    # (rolling_window_steps stays frozen).
+                    if rolling_stopped and vpt.all_crossed():
                         break
 
-                    coherent_steps += pred_steps
+                    if not rolling_stopped:
+                        coherent_steps += pred_steps
                     step           += pred_steps
 
                     next_window = pred.clone()
@@ -1208,7 +1448,8 @@ def run_coherence_test_gate_retrain(max_steps=1_000_000, seeds=None,
                         h_last = h_traj[-1].unsqueeze(0)
                         disc_b = discrepancy.unsqueeze(0)
                         gate_val = base.correction_gate(h_last, disc_b).item()
-                        gate_log.append(gate_val)
+                        if not rolling_stopped:
+                            gate_log.append(gate_val)
                         next_window[-1] = last_pred + gate_val * discrepancy
 
                     context = torch.cat([
@@ -1238,9 +1479,22 @@ def run_coherence_test_gate_retrain(max_steps=1_000_000, seeds=None,
             print(f"    {mark} {cname:<30}  {coherent_steps:>8,} steps  ({lyap_times:.2f} TL)  "
                   f"gate[mean/min/max]={gate_mean:.3f}/{gate_min:.3f}/{gate_max:.3f}  ({stopped_reason})")
 
+            vpt_res = vpt.results(dt)
+            series_path = vpt.save_series(
+                f'./results/coherence/error_series/gate_retrain/{cname}_seed{seed}.npy')
+            vpt_str = "  ".join(
+                f"VPT({th})={vpt_res[f'vpt_{th}_steps']:,} steps "
+                f"({vpt_res[f'vpt_{th}_lyapunov_times']:.2f} TL)"
+                + (" [CENSORED]" if vpt_res[f'vpt_{th}_censored'] else "")
+                for th in VPT_FIRST_CROSSING_THRESHOLDS)
+            print(f"        {vpt_str}")
+
             all_results.append({
                 'condition': cname,
                 'seed': seed,
+                'rolling_window_steps': coherent_steps,
+                **vpt_res,
+                'error_series_path': series_path,
                 'coherent_steps': coherent_steps,
                 'coherent_lyapunov_times': lyap_times,
                 'stopped_reason': stopped_reason,
@@ -1272,15 +1526,18 @@ def run_coherence_test_gate_retrain(max_steps=1_000_000, seeds=None,
     for name in per_condition_steps:
         if normal_steps[name]:
             arr = np.array(normal_steps[name])
-            mean, std = arr.mean(), arr.std()
+            mean, std = arr.mean(), _std_ddof1(arr)
             mean_lt = steps_to_lyapunov_times(mean, dt)
             gate_means = [r['gate_value_mean'] for r in all_results if r['condition'] == name]
             summary[name] = {
-                'mean_steps': float(mean), 'std_steps': float(std),
+                'mean_steps': float(mean), 'std_steps': std,
                 'mean_lyapunov_times': float(mean_lt),
                 'gate_value_mean_across_seeds': float(np.nanmean(gate_means)) if gate_means else None,
             }
-            print(f"  {name:<32}  {mean:>12.1f}  {std:>10.1f}  {mean_lt:>10.2f}")
+            print(f"  {name:<32}  {mean:>12.1f}  {_fmt_opt(std, '>10.1f')}  {mean_lt:>10.2f}")
+
+    vpt_summary = _summarize_vpt(all_results, 'condition', dt)
+    _print_vpt_summary(vpt_summary, 32)
 
     os.makedirs('./results/coherence', exist_ok=True)
     with open('./results/coherence/coherence_gate_retrain_results.json', 'w') as f:
@@ -1294,6 +1551,12 @@ def run_coherence_test_gate_retrain(max_steps=1_000_000, seeds=None,
             'new_n_cycles': new_n_cycles,
             'individual_results': all_results,
             'summary': summary,
+            'summary_rolling_window_steps': summary,
+            'summary_first_crossing_vpt': vpt_summary,
+            'vpt_thresholds': list(VPT_FIRST_CROSSING_THRESHOLDS),
+            'note': 'rolling_window_steps has a 380-step reporting floor; '
+                    'first-crossing VPT is floor-free (see function docstring). '
+                    'Censored VPT runs are excluded from VPT means. Std uses ddof=1.',
         }, f, indent=2)
     print(f"\n  Saved: ./results/coherence/coherence_gate_retrain_results.json")
     return all_results, summary
