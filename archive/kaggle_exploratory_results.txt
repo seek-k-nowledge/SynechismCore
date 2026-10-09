@@ -1,3 +1,11 @@
+EARLIER EXPLORATORY RESULTS — NOT PART OF THE CURRENT PAPER
+Free-tier Kaggle runs (v17.2 and v22). Mostly single runs or 5 seeds, not re-verified.
+The coherence (19,940 steps) and phi-significance results used a coherence metric
+later found to be flawed; treat them as withdrawn. A later 10-seed A100 re-run of the
+Lorenz bifurcation test lost clearly to the Transformer (see RESULTS_LOG.md).
+Kept for the record only. The original file was named CONFIRMED_RESULTS.txt.
+=====================================================================================
+
 SYNECHISMCORE — CONFIRMED RESULTS FROM KAGGLE RUNS
 ====================================================
 These are the baseline results. The fresh run replicates and extends them.

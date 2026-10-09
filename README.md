@@ -1,119 +1,20 @@
-> **Status: results under revision.** The coherence metric was corrected, then a 380-step reporting floor was found. Floor-free results are being re-run. Older coherence numbers below are superseded.
+> **Status: results under revision.** The coherence metric was corrected, then a 380-step reporting floor was found. Floor-free results are being re-run. Older coherence numbers are superseded.
 
-# SynechismCore v23.0.1
+# SynechismCore
 
-**Latent Neural ODEs with Aperiodic φ-Scaling for Chaotic Dynamical Systems**
+**Does a chaotic forecaster's architecture still matter once you keep correcting it with real data?**
 Paul E. Harris IV · Independent Researcher, Mashantucket Pequot Nation
-github.com/seek-k-nowledge/SynechismCore · MIT License · Target: arXiv preprint, then a 2027 workshop
-
-**Research question:** when a chaotic forecast is periodically corrected with real observations, does the forecaster's architecture still matter? Compared: Latent Neural ODE (this repo), Transformer, Mamba, LSTM.
+MIT License · Target: arXiv preprint, then a 2027 workshop
 
 ---
 
 ## Overview
 
-SynechismCore explores whether encoding φ (the golden ratio) as an aperiodic scaling structure inside a Neural ODE improves its ability to model chaotic dynamical systems — systems like turbulent fluids, atmospheric weather, and robotic control, where small differences compound unpredictably over time. Standard sequence models (LSTMs, Transformers) tend to lose accuracy quickly on these systems as errors accumulate; this work tests whether φ-scaled dynamics hold up longer and more accurately across several real benchmark domains.
+Chaotic systems (weather, turbulence, many physical processes) can't be forecast far ahead: tiny errors grow until the forecast is useless. One standard fix is to feed real observations back into the forecast every so often, which pulls it back on track.
 
-Results are mixed by design — the goal is honest benchmarking, not a clean win. SynechismCore currently outperforms baselines on turbulence (KS-PDE) and chaotic bifurcation (Lorenz) modeling, is competitive on finance and weather forecasting, and underperforms on robotics control. Fresh H100 benchmark runs (in progress) will confirm whether these results hold beyond the original Kaggle free-tier testing.
+This project asks whether, once that correction is in place, the design of the forecasting model still makes a difference. It compares a Latent Neural ODE (SynechismCore, this repo) against Transformer, Mamba and LSTM forecasters, all given the identical correction, and tests whether a learned correction gate does better than a simple fixed blend.
 
----
-
-## What This Package Is
-
-Complete benchmark suite for SynechismCore v23.0.1 — the patched version
-documented in the whitepaper §1. All six patches are applied in the code.
-Run this on a rented GPU to produce the results that fill the PENDING
-cells in the paper's tables.
-
-**Prior results (Kaggle):** listed in `CONFIRMED_RESULTS.txt` (coherence lines superseded)
-**Fresh run results:** will save to `results/fresh_run/`
-
----
-
-## Patches Applied (v23.0 → v23.0.1 + critical pre-run fixes)
-
-| # | File(s) | Fix | Why |
-|---|---|---|---|
-| P1 | src/v23_components.py | StiffnessDetector: added `super().__init__()` | Crash on `.to(device)` / DataParallel |
-| P2 | src/v23_components.py | LaminarBypass: dt-aware step `h + dt·map(h)` | Static map wrong with variable step sizes |
-| P3 | src/v23_components.py | integrate(): extract dt from t_eval per step | Required for P2 |
-| P4 | src/v23_components.py | delta_r_net: Tanh→GELU, 16→32 units | Tanh saturates during rapid expansion |
-| P5 | launch_h100.py | `torch.set_float32_matmul_precision('high')` | 2-3× free speedup on H100 Tensor Cores |
-| P6 | run_v23_benchmark.py | `.detach()` in coherence context window | Prevents OOM at step ~20,000 |
-| P7 | run_v23_benchmark.py, run_phi_ablation.py | Parameter name mismatches (nu_train→nu, forcing→F_values, damping→gamma) | Would crash ks_pde/weather/robotics on launch |
-| P8 | src/data.py | KS-PDE: retry on NaN/Inf from solver overflow | Low viscosity (ν→0) causes exponential blowup |
-| P9 | src/train.py | evaluate_model: NaN/Inf detection + replacement | Predictions can contain invalid values from numerics |
-| P11 | src/chaotic_metrics.py, run_v23_benchmark.py, src/data.py | Fix VPT metric + data generator resilience | Critical: VPT was always 0 (3 bugs); generators need retry at extreme params |
-
-## Additional Fixes (P7, P9, P11 — pre-GPU-run code review)
-
-### P7 — Parameter Name Mismatches
-Before this code ever touched a GPU, a review pass found that `run_v23_benchmark.py`
-and `run_phi_ablation.py` called the `data.py` dataset functions with keyword
-arguments that don't match their actual signatures. This would have crashed the
-`ks_pde`, `weather`, and `robotics` experiments immediately on launch (they never
-got as far as training). Fixed to match `data.py`'s real parameter names:
-
-| File | Before (broken) | After (fixed) |
-|---|---|---|
-| run_v23_benchmark.py | `make_ks_dataset(nu_train=[1.0])` | `make_ks_dataset(nu=1.0)` |
-| run_v23_benchmark.py | `make_weather_dataset(forcing=[...])` | `make_weather_dataset(F_values=[...])` |
-| run_v23_benchmark.py | `make_robotics_dataset(damping=0.5)` | `make_robotics_dataset(gamma=0.5)` |
-| run_phi_ablation.py | `make_ks_dataset(nu_train=[1.0])` | `make_ks_dataset(nu=1.0)` |
-
-`run_experiments.py` (the original v22 script) already called these correctly —
-the mismatch was only in the newer v23 runner scripts.
-
-### P9 — NaN/Inf Protection in evaluate_model
-Added explicit NaN/Inf detection in `src/train.py` `evaluate_model()`:
-after predictions gathered, count NaN/Inf values, print warning if found,
-replace with `np.nan_to_num(nan=0.0, posinf=1e6, neginf=-1e6)` before returning.
-Warning message ensures the problem is visible (not silent).
-
-### P11 — Data Generator Stability + VPT Metric Fixes
-
-**VPT Fix Verification Status:**
-- ✅ Lorenz (3D chaotic): **Real end-to-end test PASSED** — VPT metric computed from actual trained model
-- ✅ Synthetic data for all systems: **PASSED** — Logic verified (0.3622 TL with good predictions, 0.0000 with bad)
-- ⚠️  KS-PDE (64D spatial PDE): **Only tested synthetically** — CPU time constraints prevented real training test
-  - **RESIDUAL RISK:** KS-PDE was the primary system where VPT was broken (spatial std bug)
-  - **ACTION REQUIRED:** First GPU run should include quick KS-PDE check to verify VPT works on real trained model
-  - See `diagnostics/` folder for test scripts and analysis
-
-**Critical metrics fix:** VPT (Valid Prediction Time) was broken due to three bugs:
-1. **Wrong normalization** — used `.std(axis=0).mean()` (spatial std) instead of global std
-   - For spatial PDEs, this produced tiny values, inflating normalized errors
-   - Result: all errors exceeded threshold at t=0, giving VPT=0.00 across all systems
-2. **Wrong dt values** — hardcoded dt=0.25 for all non-Lorenz, but:
-   - Weather (Lorenz96) should use dt=0.05 (was 5× wrong)
-   - Robotics should use dt=0.02 (was 12.5× wrong)
-3. **Wrong system keys** — Robotics used default `lorenz63_rho28` Lyapunov exponent
-4. **Finance excluded from VPT** — Finance is a stochastic regime-switching system, not
-   deterministic chaos, so it has no valid Lyapunov exponent and VPT is meaningless.
-   Finance VPT reports "N/A", but MAE, nRMSE, and sMAPE are computed normally.
-
-**Data generator resilience** — Added P8-style retry-on-failure to `make_weather_dataset()`
-and `make_robotics_dataset()` in `src/data.py`:
-- At extreme test regimes (F=22 for weather, γ=0.05 for robotics), numerical errors could
-  accumulate or solvers could fail, producing NaN/Inf
-- Now retries up to 10 times with different random seeds before raising error
-- Consistent with P8 (KS-PDE) pattern for defensive robustness
-
----
-
-## Prior Results (Kaggle Free Tier)
-
-| Experiment | SynechismCore | Baseline | Ratio | Status |
-|---|---|---|---|---|
-| KS-PDE (ν: 1.0→0.5) | 0.2952±0.0021 | 0.4207 TF | **1.43×** | ✅ WIN |
-| Lorenz bifurcation (v17.2 vs LSTM) | 0.1269–0.8037 | 0.1772–0.8658 | **1.08–1.40×** | ✅ WIN |
-| Coherence (old metric) | 19,940 steps | ~1,260 steps | 15.8× | ⚠️ Superseded, under revision |
-| φ significance | p=0.0000 | uniform | — | ⚠️ Superseded, under revision |
-| Robotics | 12.8109 | 6.6470 TF | 0.52× | ❌ TF WINS |
-| Finance | 5.6783 | 5.8804 TF | 1.04× | ⚠️ MARGINAL |
-| Weather L96 | 1.0550 | 1.0508 TF | 1.00× | ⚠️ TIED |
-
-The coherence and φ-significance rows came from the old coherence measurement and are kept here for the record only.
+The current experiments use the Lorenz-63 system. Scope details: [`PAPER_SCOPE.md`](PAPER_SCOPE.md).
 
 ---
 
@@ -130,18 +31,30 @@ transcribed from the GPU run; raw log still to be pulled).
 | v23_hybrid_gated (learned gate) | 396.0 ± 26.1 | 380 | 400 | 440 | 380 | 380 |
 | v22_baseline_fixed (fixed c = 0.8) | 448.0 ± 87.9 | 600 | 400 | 440 | 420 | 380 |
 
-**Note:** this metric cannot report anything below 380 steps (it needs 20 full
-windows of 20 steps before it can flag divergence), so values of exactly 380 are
-floor-limited, not measured. A floor-free first-crossing VPT has been added to the
-head-to-head and gate-retrain tests and is being re-run.
+**Floor note:** this metric cannot report anything below 380 steps (it needs 20 full windows of 20 steps before it can flag divergence), so values of exactly 380 are floor-limited, not measured. 9 of the 20 values sit on the floor.
+
+**What this shows so far:** fixed correction lifts 4 of 5 runs above the floor, compared with 1 of 5 with no correction. Whether the learned gate helps can't be judged yet, because most of its runs sit on the floor.
 
 ## Next
 
-1. Floor-free first-crossing VPT (VPT at 0.3 and 0.4, with censoring) for all coherence results.
-2. Head-to-head: Latent Neural ODE vs Transformer, Mamba and LSTM under identical correction.
-3. Gate retrain across full correction cycles.
-4. More systems (KS, Weather, Robotics) — needs new coherence-test code; scope decided at the budget checkpoint.
+1. Floor-free first-crossing VPT (thresholds 0.3 and 0.4, with censoring) for the coherence tests. Added to the code; being run.
+2. Experiment 3, head-to-head: Latent Neural ODE vs Transformer, Mamba and LSTM under identical correction.
+3. Experiment 4, gate retrain across full correction cycles, logging what the gate outputs.
+4. More systems (KS, Weather, Robotics). These need new coherence-test code; scope decided at the budget checkpoint.
 5. arXiv write-up, then a 2027 workshop submission.
+
+---
+
+## Earlier exploratory results (not part of the current paper)
+
+Before the paper was narrowed to one question, an earlier version (v17–v23) was benchmarked on several systems, mostly on free-tier Kaggle GPUs. Those results were exploratory, mostly single runs or 5 seeds, and are not re-verified. They are kept in [`archive/`](archive/) for the record:
+
+- **KS-PDE** (v22, 5 seeds): 1.43× lower error than the Transformer. An A100 re-run was started but not finished.
+- **Lorenz bifurcation:** 1.08–1.40× better than an LSTM (v17.2, one seed). Against the Transformer it lost (v22, 0.94×), and a 10-seed A100 re-run also lost clearly (MAE 11.03 vs 6.39). See [`RESULTS_LOG.md`](RESULTS_LOG.md).
+- **Finance** 1.04× (not significant), **Weather** 1.00× (tied), **Robotics** 0.52× (Transformer better).
+- **Coherence (19,940 steps, 15.8×)** and **φ significance:** withdrawn. They used a coherence metric later found to be flawed.
+
+The old white paper, which makes those claims, is in [`archive/`](archive/) and is superseded.
 
 ---
 
@@ -152,7 +65,7 @@ SynechismCore/
 ├── src/
 │   ├── models.py            # v22: SynechismV20, FairTransformer, FairLSTM, FairMamba
 │   ├── v23_components.py    # v23.0.1 components, SynechismV23, CorrectionGate
-│   ├── chaotic_metrics.py   # VPT, nRMSE, sMAPE for SOTA comparison
+│   ├── chaotic_metrics.py   # VPT, nRMSE, sMAPE
 │   ├── data.py              # Experiment data generators
 │   ├── train.py             # Training loops, evaluate_model
 │   ├── stats.py             # Mann-Whitney U significance
@@ -160,222 +73,118 @@ SynechismCore/
 │   ├── hyperagent.py        # Event detector + jump correction
 │   ├── hyevo.py             # Evolutionary hyperparameter search
 │   └── __init__.py
-├── diagnostics/             # VPT and data-stability diagnosis scripts and notes
-├── paper/
-│   └── SynechismCore_v23_whitepaper.pdf   # coherence claims under revision
+├── run_v23_benchmark.py     # Coherence tests used by the current paper (Experiments 3 and 4), plus the older benchmark
+├── run_experiments.py       # Original v22 5-experiment benchmark (earlier work)
+├── run_phi_ablation.py      # φ vs √2 vs e ablation (earlier work)
+├── launch_h100.py           # Earlier full-suite launcher (not used by the current paper)
 ├── results/
-│   ├── kaggle_confirmed/    # Placeholder (prior Kaggle numbers are in CONFIRMED_RESULTS.txt)
-│   ├── fresh_run/           # Benchmark JSON output (git-ignored)
-│   └── periodic_correction_5seed_summary.md
-├── run_experiments.py       # Original v22 5-experiment benchmark
-├── run_phi_ablation.py      # φ vs √2 vs e ablation
-├── run_v23_benchmark.py     # v23 benchmark + coherence tests (incl. head-to-head, gate retrain)
-├── launch_h100.py           # Master launcher
-├── requirements.txt
-├── COMPETITORS.md           # SOTA reference values
-├── CONFIRMED_RESULTS.txt    # Prior Kaggle results (coherence lines superseded)
+│   ├── periodic_correction_5seed_summary.md
+│   └── fresh_run/           # Output of the older benchmark (JSON is git-ignored)
+├── diagnostics/             # VPT and data-stability diagnosis notes and scripts
+├── archive/                 # Superseded white paper, early Kaggle results, old run plan
 ├── PAPER_SCOPE.md           # Scope lock for the current paper
-└── RESULTS_LOG.md           # Running log of GPU runs
+├── RESULTS_LOG.md           # Log of earlier GPU runs
+├── COMPETITORS.md           # Reference values from related work
+├── CHANGELOG.md             # Code fixes, including the v23.0.1 patches
+└── requirements.txt
 ```
+
+Coherence runs write their output to `results/coherence/` (created on first run).
 
 ---
 
-**Note:** GPU rental provider below (Lambda Labs) reflects the original setup path. Currently migrating to a debit-card-friendly provider (Paperspace) — this section will be updated once that's confirmed working.
+## Running the Experiments (Paperspace A100)
 
-## Part 1: Renting a GPU (First Time)
+The experiments run on a rented **Paperspace** machine with **1× A100**. Check the current hourly rate in the Paperspace console before starting.
 
-**Provider: Lambda Labs** — https://lambdalabs.com
-Recommended for first-time renters: transparent pricing, simple setup,
-PyTorch pre-installed.
+**Billing:** the machine bills while it's running. **Stop** it when you're done for the day; that ends GPU billing and keeps your disk and files (storage may still be billed). Only delete the machine when the project is finished.
 
-**Cost:** ~$2.50–3.00/hr for H100 80GB. Full suite: under 3 hours. Total ~$8–10.
+### 1. Start the machine and get the code
 
-**BILLING STARTS WHEN YOU LAUNCH. Always TERMINATE (not Stop) when done.**
-
-### Step 1 — Create account
-Go to lambdalabs.com → Sign Up → add payment method → verify email.
-
-### Step 2 — Generate SSH key on your laptop
-
-Open Terminal on your laptop:
-- **Mac:** Applications → Utilities → Terminal
-- **Windows:** Search for PowerShell
+Start the machine in the Paperspace console and open a terminal on it. Then:
 
 ```bash
-# Check if you already have a key
-ls ~/.ssh/id_ed25519.pub
-
-# If file not found, generate one:
-ssh-keygen -t ed25519 -C "your@email.com"
-# Press Enter three times (accept all defaults)
-
-# Print your public key — copy ALL of this output:
-cat ~/.ssh/id_ed25519.pub
-```
-
-In Lambda Labs dashboard: SSH Keys → Add SSH Key → paste the output → Save.
-
-### Step 3 — Launch instance
-Dashboard → Instances → Launch Instance
-- Select: **1× H100 SXM (80GB)**. If unavailable: 1× A100 (40GB) works.
-- Image: **PyTorch 2.x**
-- SSH key: select yours
-- Click Launch. Wait 1–2 minutes for status to show "Running".
-- Note the IP address (looks like: 192.222.51.47)
-
----
-
-## Part 2: Connecting From Your Laptop
-
-```bash
-ssh ubuntu@YOUR_IP_ADDRESS
-```
-
-Example:
-```bash
-ssh ubuntu@192.222.51.47
-```
-
-If asked "Are you sure you want to continue connecting?" → type `yes`
-
-Your prompt changes to `ubuntu@gpu-instance:~$` — you are now on the server.
-
-### Verify GPU is working
-```bash
-python3 -c "import torch; print('GPU:', torch.cuda.get_device_name(0)); print('Memory:', round(torch.cuda.get_device_properties(0).total_memory/1e9,1), 'GB')"
-```
-
-Expected output:
-```
-GPU: NVIDIA H100 80GB HBM3
-Memory: 79.9 GB
-```
-
----
-
-## Part 3: Upload Code and Install
-
-### Install dependencies (on the server)
-```bash
-pip install torchdiffeq scipy matplotlib pandas -q
-```
-
-### Get the code (on the server)
-```bash
-cd /home/ubuntu
-git clone https://github.com/seek-k-nowledge/SynechismCore.git
+cd ~
+git clone https://github.com/seek-k-nowledge/SynechismCore.git   # first time only
 cd SynechismCore
-ls
+git pull                                                          # every time
+pip install -r requirements.txt
+python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0))"
 ```
 
-You should see: `launch_h100.py  run_experiments.py  run_phi_ablation.py
-run_v23_benchmark.py  src/  results/  diagnostics/  paper/`
+The last line should print `True` and the GPU name. If it prints `False`, stop here (see Troubleshooting).
 
-To update an existing copy later: `cd /home/ubuntu/SynechismCore && git pull`
+### 2. Use screen for anything long
 
----
-
-## Part 4: Running Experiments
-
-### Use screen BEFORE starting any long run
-
-`screen` keeps your scripts running if your laptop sleeps or internet drops.
+`screen` keeps a run going if your laptop sleeps or the connection drops.
 
 ```bash
-# Start a persistent session
 screen -S synechism
-
-# Your prompt changes slightly — you are now inside screen
-# Start your run here
 ```
 
-To **detach** (leave running, close laptop): press `Ctrl+A` then `D`
-To **reattach** later: `ssh` back in, then `screen -r synechism`
+Detach (leave it running): `Ctrl+A`, then `D`. Reattach later: `screen -r synechism`.
 
-### Quick sanity check first (~5 min)
+### 3. Smoke test (once, a few minutes)
+
 ```bash
-python run_v23_benchmark.py --quick
+python -u run_v23_benchmark.py --coherence-head-to-head --seeds 42 --max-steps 500 2>&1 | tee smoke_exp3.txt
+python -u run_v23_benchmark.py --coherence-gate-retrain --seeds 42 --max-steps 500 2>&1 | tee smoke_exp4.txt
 ```
-Runs 1 seed, 30 epochs. If numbers appear in output — everything works.
 
-### Full suite with 10 seeds (~2.5 hr on H100)
+Both should finish without errors and print a first-crossing VPT summary. If either fails, don't start the full runs.
+
+### 4. Experiment 3: head-to-head under identical correction
+
 ```bash
-python launch_h100.py --seeds 0 1 2 3 4 5 6 7 8 9
+python -u run_v23_benchmark.py --coherence-head-to-head --seeds 0 1 2 3 4 --max-steps 50000 2>&1 | tee run_log_exp3.txt
 ```
 
-### Individual phases
+### 5. Experiment 4: gate retrain across full correction cycles
+
 ```bash
-# Phase 1: φ ablation (~30 min)
-python run_phi_ablation.py --system lorenz --seeds 0 1 2 3 4 5 6 7 8 9
-
-# Phase 2: v23 on Lorenz + Robotics (~45 min)
-python run_v23_benchmark.py \
-    --experiment lorenz robotics \
-    --variants v22_baseline elastic_only shutter_only v23_full v23_hybrid \
-               transformer lstm mamba \
-    --seeds 0 1 2 3 4 5 6 7 8 9
-
-# Phase 3: 25k coherence test (~20 min)
-python run_v23_benchmark.py \
-    --coherence --max-steps 25000 \
-    --variants v23_full v22_baseline lstm transformer \
-    --seeds 42
-
-# Phase 4: KS-PDE headline (~45 min)
-python run_v23_benchmark.py \
-    --experiment ks_pde \
-    --variants v22_baseline v23_full transformer lstm mamba \
-    --seeds 0 1 2 3 4 5 6 7 8 9
+python -u run_v23_benchmark.py --coherence-gate-retrain --seeds 0 1 2 3 4 --gate-n-cycles 5 --max-steps 50000 2>&1 | tee run_log_exp4.txt
 ```
 
----
+> **Always pass `--max-steps 50000`.** It sets how many steps each forecast is run for. The default is 1,000,000, and a run that never diverges would keep going all the way, costing hours of GPU time.
 
-## Part 5: Download Results and Shut Down
+**How long:** an earlier estimate was about 6 hours for Experiment 3 and 7–8 hours for Experiment 4. Runs now continue until the floor-free VPT crosses its threshold or the 50,000-step cap is reached, so they can take longer. The log prints a step count and steps/sec every 1,000 steps; use that to judge.
 
-### Download results to your laptop
-Open a NEW terminal window on your laptop:
-```bash
-scp -r ubuntu@YOUR_IP:/home/ubuntu/SynechismCore/results/ ~/Desktop/synechism_results/
-```
+### 6. Save the results, then Stop the machine
 
-Verify the JSON files are on your Desktop before the next step.
+Each run writes:
 
-### TERMINATE the instance
-1. Go to Lambda Labs dashboard in your browser
-2. Instances → find your instance → click **Terminate**
-3. Confirm termination
-4. Instance disappears from dashboard — billing stops immediately
+| File | Contents |
+|---|---|
+| `run_log_exp3.txt`, `run_log_exp4.txt` | Full console output |
+| `results/coherence/coherence_head_to_head_results.json` | Experiment 3: every run, plus summaries |
+| `results/coherence/coherence_gate_retrain_results.json` | Experiment 4: every run, gate values, plus summaries |
+| `results/coherence/error_series/` | Per-step error for every run (`.npy`) |
 
-**Common mistake:** clicking Stop instead of Terminate.
-Stopped instances may still bill. Always Terminate.
+Copy the logs and the whole `results/coherence/` folder off the machine (for example with the Jupyter or file-browser download, or `scp -r` from your laptop), check they opened, then **Stop** the machine.
 
----
+### Troubleshooting
 
-## Part 6: Troubleshooting
-
-| Error | Cause | Fix |
-|---|---|---|
-| `CUDA out of memory` | Batch too large | Add `--quick` or reduce batch in script |
-| `ModuleNotFoundError: torchdiffeq` | Not installed | `pip install torchdiffeq -q` |
-| `Connection refused` | Instance still booting | Wait 1–2 min, retry |
-| `Permission denied (publickey)` | SSH key mismatch | Check public key in Lambda Labs dashboard |
-| `NaN loss after epoch 1` | LR too high | Add `--lr 1e-4` |
-| `results/fresh_run/ is empty` | Run crashed | Check: `cat nohup.out \| tail -50` |
+| Problem | What to do |
+|---|---|
+| `torch.cuda.is_available()` prints `False` | The machine has no GPU attached or the wrong image. Check the machine type in the console. |
+| `CUDA out of memory` | Stop the run, restart the machine, and run one experiment at a time. |
+| `ModuleNotFoundError` | Run `pip install -r requirements.txt` again. |
+| Connection dropped | Reconnect, then `screen -r synechism`. The run keeps going inside screen. |
+| A run seems stuck | Check the latest step line in the log. If steps/sec is still moving, it's working. |
 
 ---
 
 ## What Results Go in the Paper
 
-After the run, `results/fresh_run/` contains JSON files.
-These numbers fill the PENDING cells in Table 5.2 of the whitepaper.
+The paper's results come from `results/coherence/` (Experiments 3 and 4), reported with the floor-free first-crossing VPT as the main measure and the rolling-window metric alongside it.
 
-Every result — win or loss — gets reported.
-The paper already has confirmed negative results (Robotics 0.52×, Weather tied).
-If v23 doesn't fix Robotics, that goes in the paper too.
+Every result gets reported, including:
+- **censored runs** (forecasts that never crossed the error threshold within 50,000 steps), reported as lower bounds, not dropped;
+- results that don't favor the Latent Neural ODE;
+- the learned gate, whether or not it beats the simple fixed blend.
+
+KS, Weather and Robotics need new coherence-test code first; they're only included if the budget checkpoint allows.
 
 ---
 
-*SynechismCore v23.0.1 · Paul E. Harris IV · Mashantucket Pequot Nation · April 2026*
-*All prior confirmed results: Kaggle free-tier (P100, T4×2)*
-*No H100 results exist yet — this run produces them*
-*github.com/seek-k-nowledge/SynechismCore · MIT License*
+*SynechismCore · Paul E. Harris IV · Independent Researcher · October 2026 · MIT License*

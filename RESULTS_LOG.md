@@ -1,10 +1,6 @@
-<!-- TEMP NOTICE - remove once full rewrite with final results is published -->
-> **Update (September 2026):** We identified a measurement flaw
-> affecting the long-horizon coherence claim in this paper (the
-> reported 19,940-step figure). Corrected methodology and re-verified
-> results are in progress. Coherence-related claims in the current
-> whitepaper PDF should be treated as under revision until an updated
-> version is published here.
+> **Note (October 2026):** this log covers the earlier v23 benchmark runs. The current
+> paper is narrower (see `PAPER_SCOPE.md`). The coherence section at the bottom is
+> superseded: the 19,940-step result used a flawed coherence metric and is withdrawn.
 
 # SynechismCore — Live Results Log
 
@@ -62,6 +58,8 @@ Original confirmed results for reference:
 
 ---
 
-## COHERENCE TEST (19,940 steps) — NOT YET RE-RUN THIS SESSION
+## COHERENCE TEST (19,940 steps) — SUPERSEDED, WITHDRAWN
+
+> Superseded. The 19,940-step figure came from a coherence metric later found to be flawed. The current coherence results and plan are in the README and `PAPER_SCOPE.md`. The text below is kept for the record.
 
 This is the paper's strongest, most attention-grabbing confirmed result (already validated on original Kaggle hardware, not touched or threatened by anything above). Plan: re-run with multiple seeds and possibly extend past 25,000 steps to strengthen the claim. Decided NOT to call this a "world record" - found a real paper (arXiv 2004.01258) claiming "practically infinite" horizon on the same Lorenz system, but using periodic real-data correction ("rare state updating" every ~40 steps) - a fundamentally easier setup than our pure, zero-correction autoregression. Correct framing: "exceeds prior benchmarks in the strict pure-autoregressive setting" - precise, defensible, cites the competing paper directly rather than ignoring it.

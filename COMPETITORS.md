@@ -88,4 +88,4 @@ financial regime shifts are sharp discontinuities — the HyperAgent
 
 The paper's contribution is the structural analysis — when continuous
 latent dynamics help, and when they don't — with honest negative results.
-That framing is stronger for ML4PS than performance claims would be.
+That framing is stronger for a workshop paper than performance claims would be.
