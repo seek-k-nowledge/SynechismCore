@@ -1,9 +1,8 @@
 """
 SynechismCore v23.0.1 — Three New Architectural Components (PATCHED)
 =====================================================================
-All six patches from the whitepaper §1 are applied here before any
-benchmark run. Document each fix in the docstring so reviewers can
-verify the code matches the paper's description.
+All v23.0.1 patches are applied here. Each fix is documented below
+so reviewers can check the code.
 
 PATCH RECORD (v23.0 → v23.0.1):
   P1  StiffnessDetector: added super().__init__() — prevents crash on
@@ -16,9 +15,8 @@ PATCH RECORD (v23.0 → v23.0.1):
   P4  ElasticAttractorODE.delta_r_net: Tanh → GELU, 16 → 32 units.
       GELU has better gradient flow during rapid radius expansion vs
       Tanh saturation.
-  P5  launch_h100.py: torch.set_float32_matmul_precision('high') —
-      2-3× free speedup on H100/A100 Tensor Cores with no accuracy loss
-      for ODE training.
+  P5  torch.set_float32_matmul_precision('high'), set in the earlier
+      launcher script (since removed). Not set by run_v23_benchmark.py.
   P6  run_v23_benchmark.py coherence rollout: .detach() added to context
       window update — prevents OOM accumulation at step ~20,000.
 
@@ -99,7 +97,8 @@ def compare_shutters(n_steps: int = 50) -> dict:
     Compare discrepancy: φ vs √2 vs e vs uniform.
     Lower D* = better aperiodic coverage = less resonance with attractor.
     Theoretical prediction (Hurwitz): φ should win.
-    Empirical confirmation: run_phi_ablation.py.
+    (The earlier φ ablation script has been removed; its result is not
+    part of the current paper.)
     """
     bases = {
         'phi (golden ratio)': PHI,
@@ -124,7 +123,7 @@ class StiffnessDetector(nn.Module):
     AttributeError. The bug was invisible during dev because this class
     has no trainable parameters and forward() only accesses self.threshold.
 
-    Naming note (from whitepaper §3.3.3): 'StiffnessDetector' is a misnomer.
+    Naming note: 'StiffnessDetector' is a misnomer.
     True stiffness = ratio of largest to smallest Jacobian eigenvalue.
     This computes a gradient variance heuristic — closer to curvature.
     Consider renaming to CurvatureHeuristic before submission to avoid

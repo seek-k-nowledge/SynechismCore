@@ -5,5 +5,6 @@ __pycache__/
 venv/
 *.egg-info/
 .DS_Store
-results/fresh_run/*.json
-!results/fresh_run/.gitkeep
+# Output folders the older benchmark code creates; not used by the current paper
+results/fresh_run/
+results/v23/

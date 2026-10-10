@@ -7,7 +7,8 @@ architectures, all ~380-460 steps. 380 is that metric's reporting floor, so this
 does NOT show a shared chaos limit; the earlier "no architecture escapes the
 limit" reading is withdrawn pending floor-free VPT; (3) Exp 2 correction
 strategies (results/periodic_correction_5seed_summary.md, also floor-limited);
-(4) floor-free first-crossing VPT added to Exp 3 and Exp 4.
+(4) floor-free first-crossing VPT added to Exp 3 and Exp 4, with censored runs
+reported as lower bounds.
 TO RUN: Exp 3 head-to-head, all architectures under identical fixed 0.8
 correction; Exp 4 gate retrain (log gate outputs, start at 0.8, train across
 full correction cycles). KS, Weather and Robotics need NEW coherence-test code

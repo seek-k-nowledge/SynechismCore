@@ -1,4 +1,4 @@
-> **Status: results under revision.** The coherence metric was corrected, then a 380-step reporting floor was found. Floor-free results are being re-run. Older coherence numbers are superseded.
+> **Status: work in progress.** Floor-free results for Experiments 3 and 4 are being run. The numbers below are early and floor-limited.
 
 # SynechismCore
 
@@ -18,11 +18,10 @@ The current experiments use the Lorenz-63 system. Scope details: [`PAPER_SCOPE.m
 
 ---
 
-## Current Results (Lorenz, 5 seeds, floor-limited)
+## Results so far (Lorenz, 5 seeds, floor-limited)
 
-Steps until divergence under the corrected rolling-window metric, seeds 0–4
-(from [`results/periodic_correction_5seed_summary.md`](results/periodic_correction_5seed_summary.md),
-transcribed from the GPU run; raw log still to be pulled).
+Steps until divergence under the rolling-window coherence metric, seeds 0–4
+(from [`results/periodic_correction_5seed_summary.md`](results/periodic_correction_5seed_summary.md)).
 
 | Condition | Mean ± Std (steps) | Seed 0 | Seed 1 | Seed 2 | Seed 3 | Seed 4 |
 |---|---|---|---|---|---|---|
@@ -35,57 +34,37 @@ transcribed from the GPU run; raw log still to be pulled).
 
 **What this shows so far:** fixed correction lifts 4 of 5 runs above the floor, compared with 1 of 5 with no correction. Whether the learned gate helps can't be judged yet, because most of its runs sit on the floor.
 
+Earlier versions of this project (v17–v23) benchmarked other systems on free Kaggle GPUs and reported a long-horizon result using a coherence metric later found to be flawed. Those results are not part of this paper and have been removed from the repo.
+
 ## Next
 
-1. Floor-free first-crossing VPT (thresholds 0.3 and 0.4, with censoring) for the coherence tests. Added to the code; being run.
-2. Experiment 3, head-to-head: Latent Neural ODE vs Transformer, Mamba and LSTM under identical correction.
-3. Experiment 4, gate retrain across full correction cycles, logging what the gate outputs.
-4. More systems (KS, Weather, Robotics). These need new coherence-test code; scope decided at the budget checkpoint.
-5. arXiv write-up, then a 2027 workshop submission.
+1. **Floor-free accuracy measure.** First-crossing valid prediction time (VPT) at error thresholds 0.3 and 0.4, recorded per step, with censoring. Added to the code; being run.
+2. **Experiment 3, head-to-head.** Latent Neural ODE vs Transformer, Mamba and LSTM under identical correction.
+3. **Experiment 4, gate retrain.** The learned gate trained across full correction cycles, logging what it outputs.
+4. **More systems** (Kuramoto–Sivashinsky, weather, robotics). These need new coherence-test code; scope decided at the budget checkpoint.
+5. **Write-up.** arXiv preprint, then a 2027 workshop submission.
 
 ---
 
-## Earlier exploratory results (not part of the current paper)
-
-Before the paper was narrowed to one question, an earlier version (v17–v23) was benchmarked on several systems, mostly on free-tier Kaggle GPUs. Those results were exploratory, mostly single runs or 5 seeds, and are not re-verified. They are kept in [`archive/`](archive/) for the record:
-
-- **KS-PDE** (v22, 5 seeds): 1.43× lower error than the Transformer. An A100 re-run was started but not finished.
-- **Lorenz bifurcation:** 1.08–1.40× better than an LSTM (v17.2, one seed). Against the Transformer it lost (v22, 0.94×), and a 10-seed A100 re-run also lost clearly (MAE 11.03 vs 6.39). See [`RESULTS_LOG.md`](RESULTS_LOG.md).
-- **Finance** 1.04× (not significant), **Weather** 1.00× (tied), **Robotics** 0.52× (Transformer better).
-- **Coherence (19,940 steps, 15.8×)** and **φ significance:** withdrawn. They used a coherence metric later found to be flawed.
-
-The old white paper, which makes those claims, is in [`archive/`](archive/) and is superseded.
-
----
-
-## File Structure
+## Repository
 
 ```
 SynechismCore/
+├── run_v23_benchmark.py     # Coherence tests: Experiments 3 and 4 (and the earlier correction test)
 ├── src/
-│   ├── models.py            # v22: SynechismV20, FairTransformer, FairLSTM, FairMamba
-│   ├── v23_components.py    # v23.0.1 components, SynechismV23, CorrectionGate
-│   ├── chaotic_metrics.py   # VPT, nRMSE, sMAPE
-│   ├── data.py              # Experiment data generators
-│   ├── train.py             # Training loops, evaluate_model
-│   ├── stats.py             # Mann-Whitney U significance
-│   ├── quantum_lattice.py   # PhiLattice, FibonacciLattice, HaltonLattice
-│   ├── hyperagent.py        # Event detector + jump correction
-│   ├── hyevo.py             # Evolutionary hyperparameter search
+│   ├── v23_components.py    # SynechismV23 (Latent Neural ODE) and CorrectionGate
+│   ├── models.py            # SynechismV20 (v22 baseline), FairTransformer, FairLSTM, FairMamba
+│   ├── chaotic_metrics.py   # Forecast metrics
+│   ├── data.py              # Data generators (Lorenz-63 and others)
+│   ├── train.py             # Training loops
+│   ├── stats.py             # Significance tests
+│   ├── quantum_lattice.py   # φ-scaled time lattices used by the models
+│   ├── hyperagent.py        # Optional event detector + jump correction
+│   ├── hyevo.py             # Hyperparameter search (not used by the current experiments)
 │   └── __init__.py
-├── run_v23_benchmark.py     # Coherence tests used by the current paper (Experiments 3 and 4), plus the older benchmark
-├── run_experiments.py       # Original v22 5-experiment benchmark (earlier work)
-├── run_phi_ablation.py      # φ vs √2 vs e ablation (earlier work)
-├── launch_h100.py           # Earlier full-suite launcher (not used by the current paper)
 ├── results/
-│   ├── periodic_correction_5seed_summary.md
-│   └── fresh_run/           # Output of the older benchmark (JSON is git-ignored)
-├── diagnostics/             # VPT and data-stability diagnosis notes and scripts
-├── archive/                 # Superseded white paper, early Kaggle results, old run plan
-├── PAPER_SCOPE.md           # Scope lock for the current paper
-├── RESULTS_LOG.md           # Log of earlier GPU runs
-├── COMPETITORS.md           # Reference values from related work
-├── CHANGELOG.md             # Code fixes, including the v23.0.1 patches
+│   └── periodic_correction_5seed_summary.md
+├── PAPER_SCOPE.md           # What the paper covers, what's done, what's out of scope
 └── requirements.txt
 ```
 
@@ -182,8 +161,6 @@ Every result gets reported, including:
 - **censored runs** (forecasts that never crossed the error threshold within 50,000 steps), reported as lower bounds, not dropped;
 - results that don't favor the Latent Neural ODE;
 - the learned gate, whether or not it beats the simple fixed blend.
-
-KS, Weather and Robotics need new coherence-test code first; they're only included if the budget checkpoint allows.
 
 ---
 
