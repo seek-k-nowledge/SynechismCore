@@ -1,4 +1,12 @@
 """
+NOTE (October 2026): the model tested in the current paper is SynechismV23
+(the "v23_hybrid" variant), defined in src/v23_components.py. Its diagram is
+at the top of that file and in docs/architecture_v23.png. This file provides
+the shared building blocks V23 reuses (UFOEncoder, GRUEncoder, KoopmanLifting,
+AttractorODEFunc), the older SynechismV20 model, and the three comparison
+baselines used in the experiments: FairTransformer, FairLSTM and FairMamba.
+The description and diagram below are the original v21 notes.
+
 SynechismCore v21.0 — Unified Model Architecture
 =================================================
 Integrates ALL components into one coherent architecture:

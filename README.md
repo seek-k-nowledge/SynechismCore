@@ -18,6 +18,18 @@ The current experiments use the Lorenz-63 system. Scope details: [`PAPER_SCOPE.m
 
 ---
 
+## Architecture
+
+![SynechismV23 architecture and test protocol](docs/architecture_v23.png)
+
+**(a) The model being tested: SynechismV23 hybrid.** An encoder turns the last 50 observed steps into a starting hidden state. A latent neural ODE then evolves that state forward smoothly, with an elastic attractor term that keeps forecasts bounded, golden-ratio (φ) time steps, and a cheap shortcut through calm stretches. A HyperAgent corrects sudden jumps, and a decoder turns the hidden states into a 20-step forecast.
+
+**(b) How every model is tested.** Five forecasters (SynechismV23 hybrid, the v22 ablation baseline, Transformer, LSTM and Mamba) are rolled forward on their own predictions. Every 40 steps the latest prediction is nudged toward the true value: not at all, by a fixed 0.8, or by a learned gate (SynechismV23 only). Accuracy is the number of steps until the forecast first goes wrong (valid prediction time, VPT).
+
+Full description, component table, ablation variants and baselines: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). The same diagram, in text form, is at the top of [`src/v23_components.py`](src/v23_components.py).
+
+---
+
 ## Results so far (Lorenz, 5 seeds, floor-limited)
 
 Steps until divergence under the rolling-window coherence metric, seeds 0–4
@@ -62,6 +74,10 @@ SynechismCore/
 │   ├── hyperagent.py        # Optional event detector + jump correction
 │   ├── hyevo.py             # Hyperparameter search (not used by the current experiments)
 │   └── __init__.py
+├── docs/
+│   ├── ARCHITECTURE.md        # Model and test-protocol description (paper-ready)
+│   ├── architecture_v23.png   # Figure 1 (also .svg)
+│   └── make_architecture_figure.py
 ├── results/
 │   └── periodic_correction_5seed_summary.md
 ├── PAPER_SCOPE.md           # What the paper covers, what's done, what's out of scope

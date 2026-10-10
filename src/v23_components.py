@@ -1,6 +1,56 @@
 """
-SynechismCore v23.0.1 — Three New Architectural Components (PATCHED)
-=====================================================================
+SynechismCore v23.0.1 — the model tested in the current paper
+=============================================================
+SynechismV23 is a latent neural ODE forecaster. The "v23_hybrid" variant
+(all components on, plus HyperAgent) is the version in the experiments.
+Figure: docs/architecture_v23.png. Written description: docs/ARCHITECTURE.md.
+
+Architecture (v23_hybrid):
+
+    Input window x (B, 50, 3)              last 50 steps of (x, y, z)
+         │
+    ┌────▼───────────────────────────────────────────┐
+    │  UFOEncoder  (U-Net, 1-D convolutions)         │  variational: z, mu, logvar
+    └────────────────────┬───────────────────────────┘
+                         │ z (B, 128)
+    ┌────────────────────▼───────────────────────────┐
+    │  h0 = tanh(W [z ; g])                          │  g = SAGA, a learned goal vector
+    │  KoopmanLifting: gated lift to φ·128 and back  │
+    └────────────────────┬───────────────────────────┘
+                         │ h0 (B, 128)
+    ┌────────────────────▼───────────────────────────┐
+    │  ElasticAttractorODE                           │
+    │  dh/dt = L(h) + N(h) + F(h)                    │  L linear, N nonlinear MLP,
+    │          - α (‖h‖² - R_eff(h)²) h              │  F Fourier skip (sin/cos)
+    │  R_eff(h) = R_base + δR(h) · p_event(h)        │  elastic attractor radius
+    │                                                │
+    │  integrated with:                              │
+    │    IrrationalShutter: RK4 steps at φ-Weyl      │
+    │                       time points              │
+    │    LaminarBypass: gated linear step where      │
+    │                   curvature is low             │
+    └────────────────────┬───────────────────────────┘
+                         │ h_traj (20, B, 128)
+    ┌────────────────────▼───────────────────────────┐
+    │  HyperAgent: event detector + jump correction  │
+    └────────────────────┬───────────────────────────┘
+    ┌────────────────────▼───────────────────────────┐
+    │  Decoder (MLP)  →  forecast (B, 20, 3)         │
+    └────────────────────────────────────────────────┘
+
+    Optional: CorrectionGate G(h, x - x̂, ‖x - x̂‖) ∈ [0, 1]
+    ("v23_hybrid_gated"). During the coherence rollout, every 40 steps the
+    latest predicted point is corrected:  x̂ ← x̂ + c (x - x̂), with c = 0
+    (none), c = 0.8 (fixed), or c = G(...) (learned).
+
+Variants (make_v23): v22_baseline = this model with the elastic radius,
+shutter and bypass switched off; v23_full = all three on; v23_hybrid =
+v23_full + HyperAgent; v23_hybrid_gated = v23_hybrid + CorrectionGate.
+Baselines compared against (src/models.py): FairTransformer, FairLSTM,
+FairMamba.
+
+Patch history
+-------------
 All v23.0.1 patches are applied here. Each fix is documented below
 so reviewers can check the code.
 
