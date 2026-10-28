@@ -1,10 +1,22 @@
-# Model architecture and test protocol
+# Model architecture
 
-This page describes the model tested in the current paper, **SynechismV23** (the `v23_hybrid` variant), and the protocol every forecaster is tested under. Everything here is taken from the code in [`src/v23_components.py`](../src/v23_components.py), [`src/models.py`](../src/models.py) and [`run_v23_benchmark.py`](../run_v23_benchmark.py). The figure and caption are ready to use as Figure 1 of the paper.
+This page describes **SynechismV23** (the `v23_hybrid` variant). The current paper uses it in the **irregular-timing study**; the original figure below comes from the earlier correction study.
+
+## Irregular-timing version (current paper)
+
+![SynechismV23 for irregular timing, and the test](architecture_irregular.png)
+
+**Figure 1.** *(a)* SynechismV23 hybrid adapted for uneven sampling ([`src/irregular_models.py`](../src/irregular_models.py)). The U-Net encoder reads the last 50 observations plus the gap before each (4 channels); the posterior mean is used at test time. The latent ODE is integrated with RK4 from the last observation to each requested future time, with 4 sub-steps per gap whose boundaries sit at sorted golden-ratio Weyl points; the laminar bypass decides per example. HyperAgent and decoder are unchanged. *(b)* Every forecaster receives the past gaps and the future query times, runs forward on its own predictions, and is scored by valid prediction time in Lyapunov times. Full protocol: [`IRREGULAR_TIMING.md`](IRREGULAR_TIMING.md).
+
+What changed from the regular-timing model: only the encoder input (an extra gap channel) and the integration (to the real future times instead of a fixed grid). Every other component below is the same.
+
+## Original version (earlier correction study)
+
+Taken from [`src/v23_components.py`](../src/v23_components.py), [`src/models.py`](../src/models.py) and [`run_v23_benchmark.py`](../run_v23_benchmark.py).
 
 ![SynechismV23 architecture and test protocol](architecture_v23.png)
 
-**Figure 1.** *(a)* SynechismV23 hybrid. A window of the last 50 observed states is encoded by a U-Net-style 1-D convolutional encoder into a latent vector, combined with a learned goal vector (SAGA) and passed through a gated Koopman lifting to form the initial hidden state *h*₀. A latent ODE with an elastic attractor term evolves *h* forward; it is integrated with RK4 at golden-ratio (φ) Weyl time points and a gated linear bypass in low-curvature stretches. A HyperAgent adds jump corrections at detected discontinuities, and an MLP decoder maps the hidden states to a 20-step forecast. *(b)* Test protocol. Each of five forecasters (SynechismV23 hybrid, the v22 ablation baseline, Transformer, LSTM, Mamba) is rolled forward autoregressively on its own predictions. Every 40 steps the latest predicted point is corrected toward the true value with strength *c*: none (*c* = 0), fixed (*c* = 0.8) or learned (*c* = *G*, the CorrectionGate, SynechismV23 only). Accuracy is measured by first-crossing valid prediction time (VPT).
+**Earlier figure.** *(a)* SynechismV23 hybrid on regularly sampled windows, forecasting 20 steps on a fixed golden-ratio time grid. *(b)* The paused correction protocol: every 40 steps the latest predicted point was corrected toward the true value with strength *c* = 0, 0.8 or a learned gate.
 
 ---
 

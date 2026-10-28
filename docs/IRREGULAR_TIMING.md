@@ -68,7 +68,23 @@ bash run_irregular_parallel.sh            # add --shutdown to power off when don
 Outputs go to `results/irregular/<regime>/`: `main_results.json` with per-start
 VPTs and per-epoch training loss, and `curves/` with every error curve.
 
-## Status
+## Status (28 Oct 2026)
 
-Code complete and tested on CPU. The full 5-seed GPU run has not been done
-yet; no results are claimed here.
+**Done: equal budget of 50 epochs, 5 seeds** ([`results/irregular_50ep/`](../results/irregular_50ep/), figure [`irregular_results_50ep.png`](irregular_results_50ep.png)). Mean VPT(0.4) in Lyapunov times:
+
+| Model | Regular | Jitter | Half missing | Exponential |
+|---|---|---|---|---|
+| SynechismV23 | 2.97 | 1.68 | 1.62 | 1.50 |
+| synechism_nophi | 2.93 | 1.62 | 1.63 | 1.51 |
+| v22_baseline | 2.68 | 1.67 | 1.50 | 1.41 |
+| LSTM | 2.59 | 1.28 | 1.32 | 1.26 |
+| Transformer | 2.40 | 1.08 | 0.53 | 0.37 |
+| Mamba | 1.69 | 0.96 | 0.47 | 0.32 |
+
+No run was censored. Training loss was still falling 5-18% over the last 10
+epochs for every model, so these are **not converged** results.
+
+**Running: 200 epochs for every model.** In seed 0, the 200-epoch LSTM reached
+2.28 / 2.37 / 1.76 LT on jitter / missing / exponential, above the 50-epoch
+SynechismV23 (1.81 / 1.76 / 1.64). The comparison at equal convergence is the
+main result and is pending.

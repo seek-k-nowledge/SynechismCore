@@ -1,8 +1,8 @@
-> **Status: work in progress.** Floor-free results for Experiments 3 and 4 are being run. The numbers below are early and floor-limited.
+> **Status: work in progress.** The first full run (50 training epochs, 5 seeds) is done. A longer-training run (200 epochs for every model) is in progress and decides the main claim. Numbers below are preliminary.
 
 # SynechismCore
 
-**Does a chaotic forecaster's architecture still matter once you keep correcting it with real data?**
+**Can a continuous-time model keep chaotic forecasts accurate when data arrives at uneven times?**
 Paul E. Harris IV · Independent Researcher, Mashantucket Pequot Nation
 MIT License · Target: arXiv preprint, then a 2027 workshop
 
@@ -10,51 +10,65 @@ MIT License · Target: arXiv preprint, then a 2027 workshop
 
 ## Overview
 
-Chaotic systems (weather, turbulence, many physical processes) can't be forecast far ahead: tiny errors grow until the forecast is useless. One standard fix is to feed real observations back into the forecast every so often, which pulls it back on track.
+Real-world data rarely arrives on a clock. Robot sensors drop readings, headset frame rates wobble, weather stations lose connection, and event logs come in bursts. A world model that forecasts from that data has to cope with uneven gaps.
 
-This project asks whether, once that correction is in place, the design of the forecasting model still makes a difference. It compares a Latent Neural ODE (SynechismCore, this repo) against Transformer, Mamba and LSTM forecasters, all given the identical correction, and tests whether a learned correction gate does better than a simple fixed blend.
+Most sequence models step once per observation, as if readings were evenly spaced. The Transformer (the architecture behind ChatGPT), the LSTM and Mamba-style state-space models all work this way, even when they're given the gaps as extra input. **SynechismCore** is a latent neural ODE: it evolves a hidden state continuously in time, so it can be run forward over any gap, short or long.
 
-The current experiments use the Lorenz-63 system. Scope details: [`PAPER_SCOPE.md`](PAPER_SCOPE.md).
+This project compares SynechismV23 against Transformer, LSTM and Mamba forecasters on the chaotic Lorenz-63 system observed under four sampling regimes. All four regimes have the same average rate but increasingly uneven timing. Every model gets the same data and the same timing information, and we measure how long each model's free-running forecast stays accurate.
 
----
-
-## Architecture
-
-![SynechismV23 architecture and test protocol](docs/architecture_v23.png)
-
-**(a) The model being tested: SynechismV23 hybrid.** An encoder turns the last 50 observed steps into a starting hidden state. A latent neural ODE then evolves that state forward smoothly, with an elastic attractor term that keeps forecasts bounded, golden-ratio (φ) time steps, and a cheap shortcut through calm stretches. A HyperAgent corrects sudden jumps, and a decoder turns the hidden states into a 20-step forecast.
-
-**(b) How every model is tested.** Five forecasters (SynechismV23 hybrid, the v22 ablation baseline, Transformer, LSTM and Mamba) are rolled forward on their own predictions. Every 40 steps the latest prediction is nudged toward the true value: not at all, by a fixed 0.8, or by a learned gate (SynechismV23 only). Accuracy is the number of steps until the forecast first goes wrong (valid prediction time, VPT).
-
-Full description, component table, ablation variants and baselines: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). The same diagram, in text form, is at the top of [`src/v23_components.py`](src/v23_components.py).
+Full experiment description: [`docs/IRREGULAR_TIMING.md`](docs/IRREGULAR_TIMING.md). Scope: [`PAPER_SCOPE.md`](PAPER_SCOPE.md).
 
 ---
 
-## Results so far (Lorenz, 5 seeds, floor-limited)
+## Architecture and test
 
-Steps until divergence under the rolling-window coherence metric, seeds 0–4
-(from [`results/periodic_correction_5seed_summary.md`](results/periodic_correction_5seed_summary.md)).
+![SynechismV23 for irregular timing, and the test](docs/architecture_irregular.png)
 
-| Condition | Mean ± Std (steps) | Seed 0 | Seed 1 | Seed 2 | Seed 3 | Seed 4 |
-|---|---|---|---|---|---|---|
-| v23_hybrid_zero (no correction) | 384.0 ± 8.9 | 380 | 400 | 380 | 380 | 380 |
-| v23_hybrid_fixed (fixed c = 0.8) | 464.0 ± 75.4 | 380 | 580 | 420 | 480 | 460 |
-| v23_hybrid_gated (learned gate) | 396.0 ± 26.1 | 380 | 400 | 440 | 380 | 380 |
-| v22_baseline_fixed (fixed c = 0.8) | 448.0 ± 87.9 | 600 | 400 | 440 | 420 | 380 |
+**(a) SynechismV23 hybrid.**
+- **Encoder:** turns the last 50 observations, and the gap before each one, into a starting hidden state.
+- **Latent ODE:** evolves that state to each requested future time. It uses an elastic attractor term that keeps forecasts bounded, golden-ratio (φ) sub-steps inside each gap, and a cheap shortcut through smooth stretches.
+- **HyperAgent:** corrects sudden jumps.
+- **Decoder:** turns the hidden states into forecasts.
 
-**Floor note:** this metric cannot report anything below 380 steps (it needs 20 full windows of 20 steps before it can flag divergence), so values of exactly 380 are floor-limited, not measured. 9 of the 20 values sit on the floor.
+**(b) The test.** Every forecaster is told the past gaps and the future times it must predict. It runs forward on its own predictions, and accuracy is the valid prediction time (VPT) in Lyapunov times.
 
-**What this shows so far:** fixed correction lifts 4 of 5 runs above the floor, compared with 1 of 5 with no correction. Whether the learned gate helps can't be judged yet, because most of its runs sit on the floor.
+Component details: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
-Earlier versions of this project (v17–v23) benchmarked other systems on free Kaggle GPUs and reported a long-horizon result using a coherence metric later found to be flawed. Those results are not part of this paper and have been removed from the repo.
+---
 
-## Next
+## Results so far (preliminary: 50 training epochs, 5 seeds)
 
-1. **Floor-free accuracy measure.** First-crossing valid prediction time (VPT) at error thresholds 0.3 and 0.4, recorded per step, with censoring. Added to the code; being run.
-2. **Experiment 3, head-to-head.** Latent Neural ODE vs Transformer, Mamba and LSTM under identical correction.
-3. **Experiment 4, gate retrain.** The learned gate trained across full correction cycles, logging what it outputs.
-4. **More systems** (Kuramoto–Sivashinsky, weather, robotics). These need new coherence-test code; scope decided at the budget checkpoint.
-5. **Write-up.** arXiv preprint, then a 2027 workshop submission.
+![Valid prediction time by sampling regime](docs/irregular_results_50ep.png)
+
+The table shows mean valid prediction time in Lyapunov times. Each value is the mean of 5 seeds, and each seed's value is the median of 30 test forecasts. Higher is better.
+
+| Model | Regular | Jitter | Half missing | Exponential |
+|---|---|---|---|---|
+| **SynechismV23** | **2.97** | **1.68** | **1.62** | **1.50** |
+| LSTM | 2.59 | 1.28 | 1.32 | 1.26 |
+| Transformer | 2.40 | 1.08 | 0.53 | 0.37 |
+| Mamba | 1.69 | 0.96 | 0.47 | 0.32 |
+
+**What this shows:** at an equal budget of 50 training epochs, SynechismV23 forecasts longest in every regime.
+- **Transformer and Mamba** lose over 80% of their VPT going from regular to exponential sampling.
+- **SynechismV23 and the LSTM** lose about 50%.
+
+**What it does not show yet:**
+- **No model had finished learning at 50 epochs.** Training loss was still falling 5–18% over the last 10 epochs.
+- **The LSTM catches up with more training.** In a first seed trained for 200 epochs, it overtook the 50-epoch SynechismV23 under uneven sampling.
+- **The main claim needs both trained to convergence.** It waits for SynechismV23 at 200 epochs, which is running now.
+
+**Ablations at 50 epochs:**
+- **Golden-ratio sub-steps:** no measurable effect on VPT.
+- **Other V23 components:** beat the V22 configuration in 4 of 5 seeds in every regime.
+
+Result files: [`results/irregular_50ep/`](results/irregular_50ep/). Each file holds the per-start VPTs and the per-epoch training loss for every model and seed.
+
+---
+
+## Earlier study (paused)
+
+An earlier experiment asked whether a forecaster's architecture still matters once you keep correcting it with real data. Its results were floor-limited: the metric couldn't report anything below 380 steps. A correction test was also found to fail before its first correction. That study is paused; its summary is kept in [`results/periodic_correction_5seed_summary.md`](results/periodic_correction_5seed_summary.md), and its code is still in `run_v23_benchmark.py`. Earlier exploratory results (v17–v22, free Kaggle GPUs, an older flawed metric) are not part of this work.
 
 ---
 
@@ -62,121 +76,64 @@ Earlier versions of this project (v17–v23) benchmarked other systems on free K
 
 ```
 SynechismCore/
-├── run_v23_benchmark.py     # Coherence tests: Experiments 3 and 4 (and the earlier correction test)
+├── run_irregular.py             # Irregular-timing experiment: train, roll out, measure VPT
+├── run_irregular_parallel.sh    # Full run on one GPU: one worker per sampling regime
+├── run_v23_benchmark.py         # Earlier correction study (paused)
 ├── src/
-│   ├── v23_components.py    # SynechismV23 (Latent Neural ODE) and CorrectionGate
-│   ├── models.py            # SynechismV20 (v22 baseline), FairTransformer, FairLSTM, FairMamba
-│   ├── chaotic_metrics.py   # Forecast metrics
-│   ├── data.py              # Data generators (Lorenz-63 and others)
-│   ├── train.py             # Training loops
-│   ├── stats.py             # Significance tests
-│   ├── quantum_lattice.py   # φ-scaled time lattices used by the models
-│   ├── hyperagent.py        # Optional event detector + jump correction
-│   ├── hyevo.py             # Hyperparameter search (not used by the current experiments)
-│   └── __init__.py
+│   ├── irregular_data.py        # Lorenz-63 observed under 4 sampling regimes
+│   ├── irregular_models.py      # SynechismV23 for irregular timing + time-aware baselines
+│   ├── v23_components.py        # SynechismV23 components (elastic ODE, bypass, shutter)
+│   ├── models.py                # Encoder, Koopman lifting, baseline building blocks
+│   ├── hyperagent.py            # Event detector + jump correction
+│   └── ...                      # metrics, training and stats helpers from earlier work
 ├── docs/
-│   ├── ARCHITECTURE.md        # Model and test-protocol description (paper-ready)
-│   ├── architecture_v23.png   # Figure 1 (also .svg)
-│   └── make_architecture_figure.py
+│   ├── IRREGULAR_TIMING.md          # The experiment: data, models, metric, how to run
+│   ├── ARCHITECTURE.md              # Model description
+│   ├── architecture_irregular.png   # Figure 1 (make_architecture_irregular.py)
+│   ├── irregular_results_50ep.png   # Results figure (make_results_figure.py)
+│   └── architecture_v23.png         # Figure for the earlier correction study
 ├── results/
+│   ├── irregular_50ep/          # 50-epoch run: results JSON + logs per regime
 │   └── periodic_correction_5seed_summary.md
-├── PAPER_SCOPE.md           # What the paper covers, what's done, what's out of scope
+├── PAPER_SCOPE.md
 └── requirements.txt
 ```
 
-Coherence runs write their output to `results/coherence/` (created on first run).
+---
+
+## Running the experiment (Paperspace A100)
+
+The runs use a rented **Paperspace** machine with **1× A100**. It bills while it's running, so stop it when you're done. Stopping keeps the disk and your files.
+
+```bash
+cd ~/SynechismCore && git pull && pip install -r requirements.txt
+python -c "import torch; print(torch.cuda.is_available())"     # should print True
+
+# quick crash test (a few minutes)
+python -u run_irregular.py --seeds 0 --epochs 1 --n-train-obs 600 --n-starts 2 --horizon-lt 1 --smoke
+
+# full run: 4 workers side by side, one per regime; powers off when finished
+bash run_irregular_parallel.sh --shutdown
+```
+
+- **How long:** about 7 hours at 50 epochs on an A100. The latent ODE dominates the time; the baselines take minutes.
+- **Watch progress:** `tail results/irregular/log_*.txt`.
+- **Output:** results go to `results/irregular/<regime>/`. The `curves/` folders hold the full error curve of every forecast; they are large and aren't kept in the repo.
+- **Redraw the figures:**
+
+```bash
+python docs/make_results_figure.py results/irregular_50ep docs/irregular_results_50ep "50 epochs"
+python docs/make_architecture_irregular.py
+```
 
 ---
 
-## Running the Experiments (Paperspace A100)
-
-The experiments run on a rented **Paperspace** machine with **1× A100**. Check the current hourly rate in the Paperspace console before starting.
-
-**Billing:** the machine bills while it's running. **Stop** it when you're done for the day; that ends GPU billing and keeps your disk and files (storage may still be billed). Only delete the machine when the project is finished.
-
-### 1. Start the machine and get the code
-
-Start the machine in the Paperspace console and open a terminal on it. Then:
-
-```bash
-cd ~
-git clone https://github.com/seek-k-nowledge/SynechismCore.git   # first time only
-cd SynechismCore
-git pull                                                          # every time
-pip install -r requirements.txt
-python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0))"
-```
-
-The last line should print `True` and the GPU name. If it prints `False`, stop here (see Troubleshooting).
-
-### 2. Use screen for anything long
-
-`screen` keeps a run going if your laptop sleeps or the connection drops.
-
-```bash
-screen -S synechism
-```
-
-Detach (leave it running): `Ctrl+A`, then `D`. Reattach later: `screen -r synechism`.
-
-### 3. Smoke test (once, a few minutes)
-
-```bash
-python -u run_v23_benchmark.py --coherence-head-to-head --seeds 42 --max-steps 500 2>&1 | tee smoke_exp3.txt
-python -u run_v23_benchmark.py --coherence-gate-retrain --seeds 42 --max-steps 500 2>&1 | tee smoke_exp4.txt
-```
-
-Both should finish without errors and print a first-crossing VPT summary. If either fails, don't start the full runs.
-
-### 4. Experiment 3: head-to-head under identical correction
-
-```bash
-python -u run_v23_benchmark.py --coherence-head-to-head --seeds 0 1 2 3 4 --max-steps 50000 2>&1 | tee run_log_exp3.txt
-```
-
-### 5. Experiment 4: gate retrain across full correction cycles
-
-```bash
-python -u run_v23_benchmark.py --coherence-gate-retrain --seeds 0 1 2 3 4 --gate-n-cycles 5 --max-steps 50000 2>&1 | tee run_log_exp4.txt
-```
-
-> **Always pass `--max-steps 50000`.** It sets how many steps each forecast is run for. The default is 1,000,000, and a run that never diverges would keep going all the way, costing hours of GPU time.
-
-**How long:** an earlier estimate was about 6 hours for Experiment 3 and 7–8 hours for Experiment 4. Runs now continue until the floor-free VPT crosses its threshold or the 50,000-step cap is reached, so they can take longer. The log prints a step count and steps/sec every 1,000 steps; use that to judge.
-
-### 6. Save the results, then Stop the machine
-
-Each run writes:
-
-| File | Contents |
-|---|---|
-| `run_log_exp3.txt`, `run_log_exp4.txt` | Full console output |
-| `results/coherence/coherence_head_to_head_results.json` | Experiment 3: every run, plus summaries |
-| `results/coherence/coherence_gate_retrain_results.json` | Experiment 4: every run, gate values, plus summaries |
-| `results/coherence/error_series/` | Per-step error for every run (`.npy`) |
-
-Copy the logs and the whole `results/coherence/` folder off the machine (for example with the Jupyter or file-browser download, or `scp -r` from your laptop), check they opened, then **Stop** the machine.
-
-### Troubleshooting
-
-| Problem | What to do |
-|---|---|
-| `torch.cuda.is_available()` prints `False` | The machine has no GPU attached or the wrong image. Check the machine type in the console. |
-| `CUDA out of memory` | Stop the run, restart the machine, and run one experiment at a time. |
-| `ModuleNotFoundError` | Run `pip install -r requirements.txt` again. |
-| Connection dropped | Reconnect, then `screen -r synechism`. The run keeps going inside screen. |
-| A run seems stuck | Check the latest step line in the log. If steps/sec is still moving, it's working. |
-
----
-
-## What Results Go in the Paper
-
-The paper's results come from `results/coherence/` (Experiments 3 and 4), reported with the floor-free first-crossing VPT as the main measure and the rolling-window metric alongside it.
+## Reporting rules
 
 Every result gets reported, including:
-- **censored runs** (forecasts that never crossed the error threshold within 50,000 steps), reported as lower bounds, not dropped;
-- results that don't favor the Latent Neural ODE;
-- the learned gate, whether or not it beats the simple fixed blend.
+- results that don't favour SynechismV23;
+- censored runs (forecasts still accurate at the 10-Lyapunov-time horizon), reported as lower bounds;
+- per-epoch losses, so readers can check every model finished learning.
 
 ---
 

@@ -1,0 +1,234 @@
+Device: cuda  seeds=[0, 1, 2, 3, 4]  regimes=['exponential']
+models=['synechism', 'synechism_nophi', 'v22_baseline', 'transformer', 'lstm', 'mamba']  epochs=50  starts=30  horizon=10.0 Lyapunov times
+
+=== seed 0 | regime exponential ===
+      [synechism] epoch   1/50  loss 0.81457
+      [synechism] epoch  10/50  loss 0.03881
+      [synechism] epoch  20/50  loss 0.01181
+      [synechism] epoch  30/50  loss 0.00711
+      [synechism] epoch  40/50  loss 0.00513
+      [synechism] epoch  50/50  loss 0.00475
+    synechism        median VPT(0.4)  1.64 LT  VPT(0.3)  1.52 LT  censored 0/30  (1868s)
+      [synechism_nophi] epoch   1/50  loss 0.81468
+      [synechism_nophi] epoch  10/50  loss 0.04480
+      [synechism_nophi] epoch  20/50  loss 0.01466
+      [synechism_nophi] epoch  30/50  loss 0.00725
+      [synechism_nophi] epoch  40/50  loss 0.00517
+      [synechism_nophi] epoch  50/50  loss 0.00480
+    synechism_nophi  median VPT(0.4)  1.64 LT  VPT(0.3)  1.33 LT  censored 0/30  (1870s)
+      [v22_baseline] epoch   1/50  loss 0.80368
+      [v22_baseline] epoch  10/50  loss 0.04941
+      [v22_baseline] epoch  20/50  loss 0.01645
+      [v22_baseline] epoch  30/50  loss 0.00808
+      [v22_baseline] epoch  40/50  loss 0.00568
+      [v22_baseline] epoch  50/50  loss 0.00526
+    v22_baseline     median VPT(0.4)  1.57 LT  VPT(0.3)  1.27 LT  censored 0/30  (1158s)
+      [transformer] epoch   1/50  loss 0.57593
+      [transformer] epoch  10/50  loss 0.14815
+      [transformer] epoch  20/50  loss 0.07663
+      [transformer] epoch  30/50  loss 0.05307
+      [transformer] epoch  40/50  loss 0.04340
+      [transformer] epoch  50/50  loss 0.04097
+    transformer      median VPT(0.4)  0.39 LT  VPT(0.3)  0.36 LT  censored 0/30  (31s)
+      [lstm] epoch   1/50  loss 0.81664
+      [lstm] epoch  10/50  loss 0.08216
+      [lstm] epoch  20/50  loss 0.02863
+      [lstm] epoch  30/50  loss 0.01274
+      [lstm] epoch  40/50  loss 0.00868
+      [lstm] epoch  50/50  loss 0.00752
+    lstm             median VPT(0.4)  1.12 LT  VPT(0.3)  0.89 LT  censored 0/30  (50s)
+      [mamba] epoch   1/50  loss 0.82157
+      [mamba] epoch  10/50  loss 0.16861
+      [mamba] epoch  20/50  loss 0.11602
+      [mamba] epoch  30/50  loss 0.08847
+      [mamba] epoch  40/50  loss 0.07803
+      [mamba] epoch  50/50  loss 0.07488
+    mamba            median VPT(0.4)  0.37 LT  VPT(0.3)  0.33 LT  censored 0/30  (95s)
+
+=== seed 1 | regime exponential ===
+      [synechism] epoch   1/50  loss 0.84025
+      [synechism] epoch  10/50  loss 0.04258
+      [synechism] epoch  20/50  loss 0.01238
+      [synechism] epoch  30/50  loss 0.00790
+      [synechism] epoch  40/50  loss 0.00587
+      [synechism] epoch  50/50  loss 0.00530
+    synechism        median VPT(0.4)  1.47 LT  VPT(0.3)  1.20 LT  censored 0/30  (1876s)
+      [synechism_nophi] epoch   1/50  loss 0.84019
+      [synechism_nophi] epoch  10/50  loss 0.04137
+      [synechism_nophi] epoch  20/50  loss 0.01580
+      [synechism_nophi] epoch  30/50  loss 0.00773
+      [synechism_nophi] epoch  40/50  loss 0.00597
+      [synechism_nophi] epoch  50/50  loss 0.00540
+    synechism_nophi  median VPT(0.4)  1.48 LT  VPT(0.3)  1.31 LT  censored 0/30  (1879s)
+      [v22_baseline] epoch   1/50  loss 0.83577
+      [v22_baseline] epoch  10/50  loss 0.04125
+      [v22_baseline] epoch  20/50  loss 0.01542
+      [v22_baseline] epoch  30/50  loss 0.00781
+      [v22_baseline] epoch  40/50  loss 0.00552
+      [v22_baseline] epoch  50/50  loss 0.00509
+    v22_baseline     median VPT(0.4)  1.25 LT  VPT(0.3)  1.03 LT  censored 0/30  (1157s)
+      [transformer] epoch   1/50  loss 0.59662
+      [transformer] epoch  10/50  loss 0.14756
+      [transformer] epoch  20/50  loss 0.08034
+      [transformer] epoch  30/50  loss 0.05067
+      [transformer] epoch  40/50  loss 0.04191
+      [transformer] epoch  50/50  loss 0.03935
+    transformer      median VPT(0.4)  0.36 LT  VPT(0.3)  0.27 LT  censored 0/30  (32s)
+      [lstm] epoch   1/50  loss 0.81099
+      [lstm] epoch  10/50  loss 0.10642
+      [lstm] epoch  20/50  loss 0.03331
+      [lstm] epoch  30/50  loss 0.01589
+      [lstm] epoch  40/50  loss 0.00931
+      [lstm] epoch  50/50  loss 0.00815
+    lstm             median VPT(0.4)  1.15 LT  VPT(0.3)  0.85 LT  censored 0/30  (50s)
+      [mamba] epoch   1/50  loss 0.85034
+      [mamba] epoch  10/50  loss 0.16088
+      [mamba] epoch  20/50  loss 0.11861
+      [mamba] epoch  30/50  loss 0.09178
+      [mamba] epoch  40/50  loss 0.07991
+      [mamba] epoch  50/50  loss 0.07660
+    mamba            median VPT(0.4)  0.32 LT  VPT(0.3)  0.21 LT  censored 0/30  (94s)
+
+=== seed 2 | regime exponential ===
+      [synechism] epoch   1/50  loss 0.82983
+      [synechism] epoch  10/50  loss 0.04133
+      [synechism] epoch  20/50  loss 0.01775
+      [synechism] epoch  30/50  loss 0.00723
+      [synechism] epoch  40/50  loss 0.00522
+      [synechism] epoch  50/50  loss 0.00473
+    synechism        median VPT(0.4)  1.48 LT  VPT(0.3)  1.22 LT  censored 0/30  (1866s)
+      [synechism_nophi] epoch   1/50  loss 0.82975
+      [synechism_nophi] epoch  10/50  loss 0.03691
+      [synechism_nophi] epoch  20/50  loss 0.01677
+      [synechism_nophi] epoch  30/50  loss 0.00704
+      [synechism_nophi] epoch  40/50  loss 0.00517
+      [synechism_nophi] epoch  50/50  loss 0.00468
+    synechism_nophi  median VPT(0.4)  1.41 LT  VPT(0.3)  1.21 LT  censored 0/30  (1874s)
+      [v22_baseline] epoch   1/50  loss 0.82350
+      [v22_baseline] epoch  10/50  loss 0.04450
+      [v22_baseline] epoch  20/50  loss 0.02361
+      [v22_baseline] epoch  30/50  loss 0.00767
+      [v22_baseline] epoch  40/50  loss 0.00546
+      [v22_baseline] epoch  50/50  loss 0.00501
+    v22_baseline     median VPT(0.4)  1.32 LT  VPT(0.3)  1.10 LT  censored 0/30  (1156s)
+      [transformer] epoch   1/50  loss 0.53744
+      [transformer] epoch  10/50  loss 0.14666
+      [transformer] epoch  20/50  loss 0.07479
+      [transformer] epoch  30/50  loss 0.04981
+      [transformer] epoch  40/50  loss 0.04071
+      [transformer] epoch  50/50  loss 0.03842
+    transformer      median VPT(0.4)  0.32 LT  VPT(0.3)  0.22 LT  censored 0/30  (31s)
+      [lstm] epoch   1/50  loss 0.82239
+      [lstm] epoch  10/50  loss 0.10304
+      [lstm] epoch  20/50  loss 0.03020
+      [lstm] epoch  30/50  loss 0.01352
+      [lstm] epoch  40/50  loss 0.00863
+      [lstm] epoch  50/50  loss 0.00760
+    lstm             median VPT(0.4)  1.27 LT  VPT(0.3)  1.04 LT  censored 0/30  (51s)
+      [mamba] epoch   1/50  loss 0.81350
+      [mamba] epoch  10/50  loss 0.17110
+      [mamba] epoch  20/50  loss 0.11990
+      [mamba] epoch  30/50  loss 0.09094
+      [mamba] epoch  40/50  loss 0.07996
+      [mamba] epoch  50/50  loss 0.07671
+    mamba            median VPT(0.4)  0.27 LT  VPT(0.3)  0.21 LT  censored 0/30  (94s)
+
+=== seed 3 | regime exponential ===
+      [synechism] epoch   1/50  loss 0.84034
+      [synechism] epoch  10/50  loss 0.03870
+      [synechism] epoch  20/50  loss 0.01328
+      [synechism] epoch  30/50  loss 0.00624
+      [synechism] epoch  40/50  loss 0.00464
+      [synechism] epoch  50/50  loss 0.00417
+    synechism        median VPT(0.4)  1.57 LT  VPT(0.3)  1.51 LT  censored 0/30  (1878s)
+      [synechism_nophi] epoch   1/50  loss 0.84025
+      [synechism_nophi] epoch  10/50  loss 0.03665
+      [synechism_nophi] epoch  20/50  loss 0.01255
+      [synechism_nophi] epoch  30/50  loss 0.00630
+      [synechism_nophi] epoch  40/50  loss 0.00459
+      [synechism_nophi] epoch  50/50  loss 0.00416
+    synechism_nophi  median VPT(0.4)  1.60 LT  VPT(0.3)  1.46 LT  censored 0/30  (1871s)
+      [v22_baseline] epoch   1/50  loss 0.82195
+      [v22_baseline] epoch  10/50  loss 0.04068
+      [v22_baseline] epoch  20/50  loss 0.01324
+      [v22_baseline] epoch  30/50  loss 0.00747
+      [v22_baseline] epoch  40/50  loss 0.00556
+      [v22_baseline] epoch  50/50  loss 0.00513
+    v22_baseline     median VPT(0.4)  1.34 LT  VPT(0.3)  1.29 LT  censored 0/30  (1156s)
+      [transformer] epoch   1/50  loss 0.57294
+      [transformer] epoch  10/50  loss 0.14531
+      [transformer] epoch  20/50  loss 0.07998
+      [transformer] epoch  30/50  loss 0.05142
+      [transformer] epoch  40/50  loss 0.04161
+      [transformer] epoch  50/50  loss 0.03874
+    transformer      median VPT(0.4)  0.34 LT  VPT(0.3)  0.23 LT  censored 0/30  (31s)
+      [lstm] epoch   1/50  loss 0.85047
+      [lstm] epoch  10/50  loss 0.12877
+      [lstm] epoch  20/50  loss 0.02958
+      [lstm] epoch  30/50  loss 0.01485
+      [lstm] epoch  40/50  loss 0.00973
+      [lstm] epoch  50/50  loss 0.00872
+    lstm             median VPT(0.4)  1.39 LT  VPT(0.3)  1.12 LT  censored 0/30  (51s)
+      [mamba] epoch   1/50  loss 0.83304
+      [mamba] epoch  10/50  loss 0.17210
+      [mamba] epoch  20/50  loss 0.12506
+      [mamba] epoch  30/50  loss 0.09727
+      [mamba] epoch  40/50  loss 0.08290
+      [mamba] epoch  50/50  loss 0.07919
+    mamba            median VPT(0.4)  0.27 LT  VPT(0.3)  0.21 LT  censored 0/30  (94s)
+
+=== seed 4 | regime exponential ===
+      [synechism] epoch   1/50  loss 0.82823
+      [synechism] epoch  10/50  loss 0.06033
+      [synechism] epoch  20/50  loss 0.01975
+      [synechism] epoch  30/50  loss 0.00845
+      [synechism] epoch  40/50  loss 0.00544
+      [synechism] epoch  50/50  loss 0.00507
+    synechism        median VPT(0.4)  1.31 LT  VPT(0.3)  1.29 LT  censored 0/30  (1872s)
+      [synechism_nophi] epoch   1/50  loss 0.82823
+      [synechism_nophi] epoch  10/50  loss 0.05683
+      [synechism_nophi] epoch  20/50  loss 0.01889
+      [synechism_nophi] epoch  30/50  loss 0.00837
+      [synechism_nophi] epoch  40/50  loss 0.00543
+      [synechism_nophi] epoch  50/50  loss 0.00506
+    synechism_nophi  median VPT(0.4)  1.43 LT  VPT(0.3)  1.29 LT  censored 0/30  (1869s)
+      [v22_baseline] epoch   1/50  loss 0.83345
+      [v22_baseline] epoch  10/50  loss 0.05373
+      [v22_baseline] epoch  20/50  loss 0.02019
+      [v22_baseline] epoch  30/50  loss 0.00903
+      [v22_baseline] epoch  40/50  loss 0.00653
+      [v22_baseline] epoch  50/50  loss 0.00597
+    v22_baseline     median VPT(0.4)  1.55 LT  VPT(0.3)  1.07 LT  censored 0/30  (1111s)
+      [transformer] epoch   1/50  loss 0.54879
+      [transformer] epoch  10/50  loss 0.14159
+      [transformer] epoch  20/50  loss 0.07690
+      [transformer] epoch  30/50  loss 0.05078
+      [transformer] epoch  40/50  loss 0.04149
+      [transformer] epoch  50/50  loss 0.03850
+    transformer      median VPT(0.4)  0.46 LT  VPT(0.3)  0.34 LT  censored 0/30  (24s)
+      [lstm] epoch   1/50  loss 0.80699
+      [lstm] epoch  10/50  loss 0.12238
+      [lstm] epoch  20/50  loss 0.03709
+      [lstm] epoch  30/50  loss 0.01623
+      [lstm] epoch  40/50  loss 0.01017
+      [lstm] epoch  50/50  loss 0.00883
+    lstm             median VPT(0.4)  1.36 LT  VPT(0.3)  1.21 LT  censored 0/30  (37s)
+      [mamba] epoch   1/50  loss 0.84638
+      [mamba] epoch  10/50  loss 0.16762
+      [mamba] epoch  20/50  loss 0.12082
+      [mamba] epoch  30/50  loss 0.09160
+      [mamba] epoch  40/50  loss 0.08010
+      [mamba] epoch  50/50  loss 0.07708
+    mamba            median VPT(0.4)  0.38 LT  VPT(0.3)  0.17 LT  censored 0/30  (76s)
+
+=== Summary: median VPT(0.4) in Lyapunov times, pooled over seeds and starts ===
+  model             exponential
+  synechism                1.51
+  synechism_nophi          1.57
+  v22_baseline             1.37
+  transformer              0.36
+  lstm                     1.25
+  mamba                    0.31
+
+Saved: results/irregular/exponential/main_results.json  total time 421.9 min
+EXIT 0
