@@ -64,6 +64,7 @@ def train(model, name, data, epochs, device, batch_size=64, beta=5e-4, warmup=30
     X, DH, DF, Y = (to_t(data[k], device) for k in ('x_hist', 'dt_hist', 'dt_fut', 'y_fut'))
     n = X.shape[0]
     model.train()
+    losses = []
     for ep in range(epochs):
         perm = torch.randperm(n, device=device)
         total = 0.0
@@ -81,9 +82,11 @@ def train(model, name, data, epochs, device, batch_size=64, beta=5e-4, warmup=30
             opt.step()
             total += loss.item() * len(idx)
         sched.step()
+        losses.append(total / n)
         if ep == 0 or (ep + 1) % max(1, epochs // 5) == 0:
             print(f"      [{name}] epoch {ep + 1:>3}/{epochs}  loss {total / n:.5f}", flush=True)
     model.eval()
+    return losses
 
 
 @torch.no_grad()
@@ -137,7 +140,7 @@ def main():
     ap.add_argument('--seeds', type=int, nargs='+', default=[0, 1, 2, 3, 4])
     ap.add_argument('--regimes', nargs='+', default=list(REGIMES))
     ap.add_argument('--models', nargs='+', default=list(MODEL_NAMES))
-    ap.add_argument('--epochs', type=int, default=100)
+    ap.add_argument('--epochs', type=int, default=50)
     ap.add_argument('--n-train-obs', type=int, default=6000)
     ap.add_argument('--n-starts', type=int, default=30)
     ap.add_argument('--horizon-lt', type=float, default=10.0,
@@ -172,7 +175,7 @@ def main():
                 set_seed(seed)
                 model = make_model(name, SEQ_LEN, PRED_LEN).to(device)
                 t0 = time.time()
-                train(model, name, data, args.epochs, device)
+                losses = train(model, name, data, args.epochs, device)
                 vpt, curves = rollout_vpt(model, te_t, te_n, starts, horizon, sigma, device)
                 np.savez_compressed(os.path.join(args.out, 'curves',
                                                  f'{tag}_{regime}_{name}_seed{seed}.npz'),
@@ -184,7 +187,7 @@ def main():
                       f"({time.time() - t0:.0f}s)", flush=True)
                 results.append({'seed': seed, 'regime': regime, 'model': name,
                                 'n_params': sum(p.numel() for p in model.parameters()),
-                                **vpt})
+                                'train_loss': losses, **vpt})
                 del model
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()

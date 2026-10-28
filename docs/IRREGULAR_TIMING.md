@@ -52,20 +52,21 @@ normalized error first exceeds 0.4 (and 0.3), in Lyapunov times
 within the horizon is censored at the horizon and reported as a lower bound.
 
 Training: Adam, cosine learning rate, batch size 64, gradient clipping 1.0,
-100 epochs. The latent models add a KL term (beta = 5e-4, annealed over 30
-epochs) and the HyperAgent regularizer.
+50 epochs for every model. Every epoch's training loss is saved, so it can be
+checked that each model had finished learning. The latent models add a KL term
+(beta = 5e-4, annealed over 30 epochs) and the HyperAgent regularizer.
 
 ## Running
 
 ```bash
 # quick crash test (minutes)
 python -u run_irregular.py --seeds 0 --epochs 1 --n-train-obs 600 --n-starts 2 --horizon-lt 1 --smoke
-# full run (GPU)
-python -u run_irregular.py --seeds 0 1 2 3 4 2>&1 | tee run_log_irregular.txt
+# full run on one GPU: 4 workers side by side, one per timing regime
+bash run_irregular_parallel.sh            # add --shutdown to power off when done
 ```
 
-Outputs go to `results/irregular/`: `main_results.json` with per-start VPTs,
-and `curves/` with every error curve.
+Outputs go to `results/irregular/<regime>/`: `main_results.json` with per-start
+VPTs and per-epoch training loss, and `curves/` with every error curve.
 
 ## Status
 
