@@ -1,10 +1,12 @@
-> **Status:** main comparison complete (every model trained 200 epochs, 4 sampling regimes, 5 seeds). Paper draft in progress; ablations at 200 epochs and extra baselines are next.
+> **Status:** main comparison complete (every model trained 200 epochs, 4 sampling regimes, 5 seeds). The technical report is in [`paper/`](paper/); ablations at 200 epochs and extra baselines are next.
 
 # SynechismCore
 
 **Can a continuous-time model keep chaotic forecasts accurate when data arrives at uneven times?**
 Paul E. Harris IV · Independent Researcher, Mashantucket Pequot Nation
 MIT License · Target: arXiv preprint, then a 2027 workshop
+
+**Paper (October 2026):** [*Continuous-Time Latent Dynamics for Long-Horizon Chaotic Forecasting under Irregular Sampling*](paper/Harris_2026_Continuous-Time_Latent_Dynamics_Irregular_Sampling.pdf) (PDF, 14 pages)
 
 ---
 
@@ -96,6 +98,7 @@ SynechismCore/
 │   ├── irregular_200ep/         # Main run (200 epochs): results JSON + logs per regime
 │   ├── irregular_50ep/          # 50-epoch run: results JSON + logs per regime
 │   └── periodic_correction_5seed_summary.md
+├── paper/                   # Technical report (PDF)
 ├── PAPER_SCOPE.md
 └── requirements.txt
 ```
