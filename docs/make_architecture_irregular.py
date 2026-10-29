@@ -125,7 +125,7 @@ for k, (key, lab, note) in enumerate(rows):
 arrow(bcx, 70, bcx, 66.6)
 box(bx, 47, bw, 19.5, "Forecasters, each told the gaps and the times to predict",
     "SynechismV23 (this work): latent ODE run over the real gaps\n"
-    "Transformer (the architecture behind ChatGPT): real-time positions\n"
+    "Transformer (8 heads, 4 layers): continuous-time positional encoding\n"
     "LSTM: reads each gap; predicts one time at a time\n"
     "Mamba (state-space model): reads each gap\n"
     "plus two SynechismV23 ablations", fc=C_LOOP, ec=E_LOOP, bs=10.4)
