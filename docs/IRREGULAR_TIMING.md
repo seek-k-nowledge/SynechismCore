@@ -68,9 +68,26 @@ bash run_irregular_parallel.sh            # add --shutdown to power off when don
 Outputs go to `results/irregular/<regime>/`: `main_results.json` with per-start
 VPTs and per-epoch training loss, and `curves/` with every error curve.
 
-## Status (28 Oct 2026)
+## Status (29 Oct 2026)
 
-**Done: equal budget of 50 epochs, 5 seeds** ([`results/irregular_50ep/`](../results/irregular_50ep/), figure [`irregular_results_50ep.png`](irregular_results_50ep.png)). Mean VPT(0.4) in Lyapunov times:
+**Main result: every model trained 200 epochs, 5 seeds** ([`results/irregular_200ep/`](../results/irregular_200ep/), figure [`irregular_results_200ep.png`](irregular_results_200ep.png)). Mean VPT(0.4) in Lyapunov times:
+
+| Model | Regular | Jitter | Half missing | Exponential |
+|---|---|---|---|---|
+| SynechismV23 | 3.55 | 2.45 | 2.32 | 2.03 |
+| LSTM | 2.08 | 2.24 | 2.10 | 1.78 |
+| Transformer | 2.79 | 1.44 | 0.79 | 0.55 |
+| Mamba | 2.77 | 1.20 | 0.69 | 0.50 |
+
+SynechismV23 vs LSTM: 5/5 seeds (regular), 4/5 seeds in each uneven regime;
+per-forecast wins 139, 88, 86, 86 of 150. Vs Transformer and Mamba: 5/5 seeds
+everywhere. No run was censored. Training loss changed by at most 4.4%
+(SynechismV23), 3.9% (LSTM), 6.3% (Mamba) and 11.2% (Transformer, regular)
+over the last 20 epochs. The 200-epoch run was made with
+`run_irregular.py --epochs 200`; baselines and SynechismV23 ran as separate
+jobs with identical data and settings, and their result lists are merged per regime.
+
+**Shorter budget: 50 epochs, 5 seeds** ([`results/irregular_50ep/`](../results/irregular_50ep/)), including ablations:
 
 | Model | Regular | Jitter | Half missing | Exponential |
 |---|---|---|---|---|
@@ -81,10 +98,5 @@ VPTs and per-epoch training loss, and `curves/` with every error curve.
 | Transformer | 2.40 | 1.08 | 0.53 | 0.37 |
 | Mamba | 1.69 | 0.96 | 0.47 | 0.32 |
 
-No run was censored. Training loss was still falling 5-18% over the last 10
-epochs for every model, so these are **not converged** results.
-
-**Running: 200 epochs for every model.** In seed 0, the 200-epoch LSTM reached
-2.28 / 2.37 / 1.76 LT on jitter / missing / exponential, above the 50-epoch
-SynechismV23 (1.81 / 1.76 / 1.64). The comparison at equal convergence is the
-main result and is pending.
+At 50 epochs training loss was still falling 5-18% over the last 10 epochs, so
+these numbers are not converged. Ablations have not yet been rerun at 200 epochs.

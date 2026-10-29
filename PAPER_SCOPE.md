@@ -12,10 +12,12 @@ sampling, SynechismV23 and LSTM about 50%; golden-ratio sub-steps show no VPT
 effect; V23 parts beat V22 in 4/5 seeds; (3) found that no model had converged
 at 50 epochs.
 
-RUNNING: all models at 200 epochs (5 seeds). This decides the headline: in seed
-0 the 200-epoch LSTM overtook the 50-epoch SynechismV23 under uneven sampling.
+DONE (29 Oct 2026): all models at 200 epochs, 5 seeds. SynechismV23 longest
+VPT in all four regimes (exponential: 2.03 vs LSTM 1.78, Transformer 0.55,
+Mamba 0.50); 5/5 seeds vs Transformer and Mamba everywhere; 4/5 seeds vs LSTM
+in each uneven regime (modest edge); LSTM degrades least (-14% vs -43%).
 
-NEXT: step-by-step decoding versions of the Transformer and Mamba (one-shot vs
+NEXT: more seeds for the LSTM comparison; ablations at 200 epochs; step-by-step decoding versions of the Transformer and Mamba (one-shot vs
 step-by-step decoding is a confound); ContiFormer as a continuous-time
 Transformer baseline; read Krach and Teichmann (2024) and BITS (2026) in full;
 a second system (Kuramoto-Sivashinsky), then robotics data.

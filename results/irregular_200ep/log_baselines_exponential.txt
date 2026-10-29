@@ -1,0 +1,126 @@
+Device: cuda  seeds=[0, 1, 2, 3, 4]  regimes=['exponential']
+models=['transformer', 'lstm', 'mamba']  epochs=200  starts=30  horizon=10.0 Lyapunov times
+
+=== seed 0 | regime exponential ===
+      [transformer] epoch   1/200  loss 0.57593
+      [transformer] epoch  40/200  loss 0.03617
+      [transformer] epoch  80/200  loss 0.01895
+      [transformer] epoch 120/200  loss 0.01220
+      [transformer] epoch 160/200  loss 0.00979
+      [transformer] epoch 200/200  loss 0.00902
+    transformer      median VPT(0.4)  0.63 LT  VPT(0.3)  0.51 LT  censored 0/30  (119s)
+      [lstm] epoch   1/200  loss 0.81664
+      [lstm] epoch  40/200  loss 0.00867
+      [lstm] epoch  80/200  loss 0.00899
+      [lstm] epoch 120/200  loss 0.00415
+      [lstm] epoch 160/200  loss 0.00161
+      [lstm] epoch 200/200  loss 0.00145
+    lstm             median VPT(0.4)  1.76 LT  VPT(0.3)  1.21 LT  censored 0/30  (205s)
+      [mamba] epoch   1/200  loss 0.82157
+      [mamba] epoch  40/200  loss 0.06778
+      [mamba] epoch  80/200  loss 0.03532
+      [mamba] epoch 120/200  loss 0.02422
+      [mamba] epoch 160/200  loss 0.02010
+      [mamba] epoch 200/200  loss 0.01906
+    mamba            median VPT(0.4)  0.56 LT  VPT(0.3)  0.43 LT  censored 0/30  (376s)
+
+=== seed 1 | regime exponential ===
+      [transformer] epoch   1/200  loss 0.59662
+      [transformer] epoch  40/200  loss 0.03822
+      [transformer] epoch  80/200  loss 0.01839
+      [transformer] epoch 120/200  loss 0.01193
+      [transformer] epoch 160/200  loss 0.00957
+      [transformer] epoch 200/200  loss 0.00868
+    transformer      median VPT(0.4)  0.57 LT  VPT(0.3)  0.39 LT  censored 0/30  (117s)
+      [lstm] epoch   1/200  loss 0.81099
+      [lstm] epoch  40/200  loss 0.01490
+      [lstm] epoch  80/200  loss 0.00536
+      [lstm] epoch 120/200  loss 0.00286
+      [lstm] epoch 160/200  loss 0.00155
+      [lstm] epoch 200/200  loss 0.00134
+    lstm             median VPT(0.4)  1.65 LT  VPT(0.3)  1.44 LT  censored 0/30  (205s)
+      [mamba] epoch   1/200  loss 0.85034
+      [mamba] epoch  40/200  loss 0.06384
+      [mamba] epoch  80/200  loss 0.03555
+      [mamba] epoch 120/200  loss 0.02463
+      [mamba] epoch 160/200  loss 0.02058
+      [mamba] epoch 200/200  loss 0.01954
+    mamba            median VPT(0.4)  0.46 LT  VPT(0.3)  0.27 LT  censored 0/30  (376s)
+
+=== seed 2 | regime exponential ===
+      [transformer] epoch   1/200  loss 0.53744
+      [transformer] epoch  40/200  loss 0.03727
+      [transformer] epoch  80/200  loss 0.01802
+      [transformer] epoch 120/200  loss 0.01233
+      [transformer] epoch 160/200  loss 0.00939
+      [transformer] epoch 200/200  loss 0.00876
+    transformer      median VPT(0.4)  0.44 LT  VPT(0.3)  0.27 LT  censored 0/30  (115s)
+      [lstm] epoch   1/200  loss 0.82239
+      [lstm] epoch  40/200  loss 0.01460
+      [lstm] epoch  80/200  loss 0.00550
+      [lstm] epoch 120/200  loss 0.00278
+      [lstm] epoch 160/200  loss 0.00174
+      [lstm] epoch 200/200  loss 0.00152
+    lstm             median VPT(0.4)  1.74 LT  VPT(0.3)  1.27 LT  censored 0/30  (204s)
+      [mamba] epoch   1/200  loss 0.81350
+      [mamba] epoch  40/200  loss 0.06662
+      [mamba] epoch  80/200  loss 0.03877
+      [mamba] epoch 120/200  loss 0.02721
+      [mamba] epoch 160/200  loss 0.02233
+      [mamba] epoch 200/200  loss 0.02112
+    mamba            median VPT(0.4)  0.49 LT  VPT(0.3)  0.32 LT  censored 0/30  (374s)
+
+=== seed 3 | regime exponential ===
+      [transformer] epoch   1/200  loss 0.57294
+      [transformer] epoch  40/200  loss 0.03510
+      [transformer] epoch  80/200  loss 0.01829
+      [transformer] epoch 120/200  loss 0.01224
+      [transformer] epoch 160/200  loss 0.00969
+      [transformer] epoch 200/200  loss 0.00886
+    transformer      median VPT(0.4)  0.42 LT  VPT(0.3)  0.32 LT  censored 0/30  (117s)
+      [lstm] epoch   1/200  loss 0.85047
+      [lstm] epoch  40/200  loss 0.02685
+      [lstm] epoch  80/200  loss 0.00492
+      [lstm] epoch 120/200  loss 0.00265
+      [lstm] epoch 160/200  loss 0.00166
+      [lstm] epoch 200/200  loss 0.00148
+    lstm             median VPT(0.4)  1.57 LT  VPT(0.3)  1.36 LT  censored 0/30  (201s)
+      [mamba] epoch   1/200  loss 0.83304
+      [mamba] epoch  40/200  loss 0.06657
+      [mamba] epoch  80/200  loss 0.03693
+      [mamba] epoch 120/200  loss 0.02582
+      [mamba] epoch 160/200  loss 0.02140
+      [mamba] epoch 200/200  loss 0.02028
+    mamba            median VPT(0.4)  0.42 LT  VPT(0.3)  0.30 LT  censored 0/30  (375s)
+
+=== seed 4 | regime exponential ===
+      [transformer] epoch   1/200  loss 0.54879
+      [transformer] epoch  40/200  loss 0.03560
+      [transformer] epoch  80/200  loss 0.01760
+      [transformer] epoch 120/200  loss 0.01160
+      [transformer] epoch 160/200  loss 0.00941
+      [transformer] epoch 200/200  loss 0.00853
+    transformer      median VPT(0.4)  0.68 LT  VPT(0.3)  0.45 LT  censored 0/30  (117s)
+      [lstm] epoch   1/200  loss 0.80699
+      [lstm] epoch  40/200  loss 0.01933
+      [lstm] epoch  80/200  loss 0.00618
+      [lstm] epoch 120/200  loss 0.00349
+      [lstm] epoch 160/200  loss 0.00178
+      [lstm] epoch 200/200  loss 0.00158
+    lstm             median VPT(0.4)  2.19 LT  VPT(0.3)  1.79 LT  censored 0/30  (201s)
+      [mamba] epoch   1/200  loss 0.84638
+      [mamba] epoch  40/200  loss 0.06923
+      [mamba] epoch  80/200  loss 0.03700
+      [mamba] epoch 120/200  loss 0.02540
+      [mamba] epoch 160/200  loss 0.02121
+      [mamba] epoch 200/200  loss 0.02003
+    mamba            median VPT(0.4)  0.57 LT  VPT(0.3)  0.40 LT  censored 0/30  (375s)
+
+=== Summary: median VPT(0.4) in Lyapunov times, pooled over seeds and starts ===
+  model             exponential
+  transformer              0.56
+  lstm                     1.72
+  mamba                    0.47
+
+Saved: results/irregular_long/exponential/main_results.json  total time 58.1 min
+EXIT 0

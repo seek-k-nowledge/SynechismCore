@@ -1,4 +1,4 @@
-> **Status: work in progress.** The first full run (50 training epochs, 5 seeds) is done. A longer-training run (200 epochs for every model) is in progress and decides the main claim. Numbers below are preliminary.
+> **Status:** main comparison complete (every model trained 200 epochs, 4 sampling regimes, 5 seeds). Paper draft in progress; ablations at 200 epochs and extra baselines are next.
 
 # SynechismCore
 
@@ -36,33 +36,32 @@ Component details: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ---
 
-## Results so far (preliminary: 50 training epochs, 5 seeds)
+## Results (Lorenz-63, 5 seeds, every model trained 200 epochs)
 
-![Valid prediction time by sampling regime](docs/irregular_results_50ep.png)
+![Valid prediction time by sampling regime, 200 epochs](docs/irregular_results_200ep.png)
 
 The table shows mean valid prediction time in Lyapunov times. Each value is the mean of 5 seeds, and each seed's value is the median of 30 test forecasts. Higher is better.
 
 | Model | Regular | Jitter | Half missing | Exponential |
 |---|---|---|---|---|
-| **SynechismV23** | **2.97** | **1.68** | **1.62** | **1.50** |
-| LSTM | 2.59 | 1.28 | 1.32 | 1.26 |
-| Transformer | 2.40 | 1.08 | 0.53 | 0.37 |
-| Mamba | 1.69 | 0.96 | 0.47 | 0.32 |
+| **SynechismV23** | **3.55** | **2.45** | **2.32** | **2.03** |
+| LSTM | 2.08 | 2.24 | 2.10 | 1.78 |
+| Transformer | 2.79 | 1.44 | 0.79 | 0.55 |
+| Mamba | 2.77 | 1.20 | 0.69 | 0.50 |
 
-**What this shows:** at an equal budget of 50 training epochs, SynechismV23 forecasts longest in every regime.
-- **Transformer and Mamba** lose over 80% of their VPT going from regular to exponential sampling.
-- **SynechismV23 and the LSTM** lose about 50%.
+**What this shows:** with every model trained to convergence, SynechismV23 forecasts longest in every regime.
+- **Against the Transformer and Mamba:** it wins 5 of 5 seeds in every regime. Under exponential sampling it lasts about 4× as long; both lose about 80% of their VPT from regular to exponential sampling.
+- **Against the LSTM, the strongest baseline:** it wins 5 of 5 seeds under regular sampling. Under uneven sampling the lead is smaller but consistent: 4 of 5 seeds per regime, 9–14% longer on average, paired Wilcoxon p between 0.0006 and 0.035 over 150 forecasts per regime.
 
-**What it does not show yet:**
-- **No model had finished learning at 50 epochs.** Training loss was still falling 5–18% over the last 10 epochs.
-- **The LSTM catches up with more training.** In a first seed trained for 200 epochs, it overtook the 50-epoch SynechismV23 under uneven sampling.
-- **The main claim needs both trained to convergence.** It waits for SynechismV23 at 200 epochs, which is running now.
+**Caveats:**
+- **Degradation:** the LSTM is the least affected by uneven sampling (−14% from regular to exponential, against −43% for SynechismV23). SynechismV23 ranks highest because it starts much higher.
+- **The LSTM comparison:** 5 seeds is enough to see a consistent lead, but more seeds would make it firmer.
+- **Training budget:** at a shorter equal budget of 50 epochs no model had converged. The ranking was the same, but the margins differed ([`docs/irregular_results_50ep.png`](docs/irregular_results_50ep.png)). Training loss changed less than 5% over the last 20 of 200 epochs for every model, except 11% for the Transformer on regular sampling.
+- **Ablations so far are at 50 epochs only.** Golden-ratio sub-steps had no measurable effect on VPT. The other V23 components beat the V22 configuration in 4 of 5 seeds.
 
-**Ablations at 50 epochs:**
-- **Golden-ratio sub-steps:** no measurable effect on VPT.
-- **Other V23 components:** beat the V22 configuration in 4 of 5 seeds in every regime.
-
-Result files: [`results/irregular_50ep/`](results/irregular_50ep/). Each file holds the per-start VPTs and the per-epoch training loss for every model and seed.
+Result files, with per-start VPTs and per-epoch training loss for every model and seed:
+- [`results/irregular_200ep/`](results/irregular_200ep/) (main)
+- [`results/irregular_50ep/`](results/irregular_50ep/)
 
 ---
 
@@ -90,9 +89,11 @@ SynechismCore/
 │   ├── IRREGULAR_TIMING.md          # The experiment: data, models, metric, how to run
 │   ├── ARCHITECTURE.md              # Model description
 │   ├── architecture_irregular.png   # Figure 1 (make_architecture_irregular.py)
-│   ├── irregular_results_50ep.png   # Results figure (make_results_figure.py)
+│   ├── irregular_results_200ep.png  # Main results figure (make_results_figure.py)
+│   ├── irregular_results_50ep.png   # 50-epoch results figure
 │   └── architecture_v23.png         # Figure for the earlier correction study
 ├── results/
+│   ├── irregular_200ep/         # Main run (200 epochs): results JSON + logs per regime
 │   ├── irregular_50ep/          # 50-epoch run: results JSON + logs per regime
 │   └── periodic_correction_5seed_summary.md
 ├── PAPER_SCOPE.md
@@ -116,13 +117,13 @@ python -u run_irregular.py --seeds 0 --epochs 1 --n-train-obs 600 --n-starts 2 -
 bash run_irregular_parallel.sh --shutdown
 ```
 
-- **How long:** about 7 hours at 50 epochs on an A100. The latent ODE dominates the time; the baselines take minutes.
+- **How long:** about 7 hours at 50 epochs and about 10 hours at 200 epochs on an A100 (pass `--epochs 200` to `run_irregular.py`). The latent ODE dominates the time; the baselines take minutes.
 - **Watch progress:** `tail results/irregular/log_*.txt`.
 - **Output:** results go to `results/irregular/<regime>/`. The `curves/` folders hold the full error curve of every forecast; they are large and aren't kept in the repo.
 - **Redraw the figures:**
 
 ```bash
-python docs/make_results_figure.py results/irregular_50ep docs/irregular_results_50ep "50 epochs"
+python docs/make_results_figure.py results/irregular_200ep docs/irregular_results_200ep "200 epochs"
 python docs/make_architecture_irregular.py
 ```
 

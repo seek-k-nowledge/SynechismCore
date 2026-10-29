@@ -72,8 +72,9 @@ ax.text(3.25, labels[0][0][0] + 0.25, "At exponential\n(change from regular)",
 
 ax.set_xticks(range(4))
 ax.set_xticklabels([f"{lab}\nCV {cv}" for _, lab, cv in REGIMES], fontsize=10.5, color=INK)
-ax.set_xlim(-0.3, 3.15); ax.set_ylim(0, 3.5)
-ax.set_yticks([0, 1, 2, 3]); ax.tick_params(axis="y", labelsize=10, colors=INK2, length=0)
+top = max(v[2] for k, v in stats.items() if k[1] != "label")
+ax.set_xlim(-0.3, 3.15); ax.set_ylim(0, max(3.5, top + 0.25))
+ax.set_yticks(range(0, int(max(3.5, top + 0.25)) + 1)); ax.tick_params(axis="y", labelsize=10, colors=INK2, length=0)
 ax.tick_params(axis="x", length=0)
 ax.set_ylabel("Valid prediction time (Lyapunov times)", fontsize=10.5, color=INK2)
 ax.grid(axis="y", color=GRID, lw=1); ax.set_axisbelow(True)

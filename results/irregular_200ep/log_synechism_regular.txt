@@ -1,0 +1,54 @@
+Device: cuda  seeds=[0, 1, 2, 3, 4]  regimes=['regular']
+models=['synechism']  epochs=200  starts=30  horizon=10.0 Lyapunov times
+
+=== seed 0 | regime regular ===
+      [synechism] epoch   1/200  loss 0.81430
+      [synechism] epoch  40/200  loss 0.00461
+      [synechism] epoch  80/200  loss 0.00249
+      [synechism] epoch 120/200  loss 0.00169
+      [synechism] epoch 160/200  loss 0.00138
+      [synechism] epoch 200/200  loss 0.00129
+    synechism        median VPT(0.4)  3.73 LT  VPT(0.3)  3.52 LT  censored 0/30  (7247s)
+
+=== seed 1 | regime regular ===
+      [synechism] epoch   1/200  loss 0.82862
+      [synechism] epoch  40/200  loss 0.00505
+      [synechism] epoch  80/200  loss 0.00274
+      [synechism] epoch 120/200  loss 0.00171
+      [synechism] epoch 160/200  loss 0.00144
+      [synechism] epoch 200/200  loss 0.00136
+    synechism        median VPT(0.4)  3.70 LT  VPT(0.3)  3.64 LT  censored 0/30  (7252s)
+
+=== seed 2 | regime regular ===
+      [synechism] epoch   1/200  loss 0.82692
+      [synechism] epoch  40/200  loss 0.00427
+      [synechism] epoch  80/200  loss 0.00206
+      [synechism] epoch 120/200  loss 0.00181
+      [synechism] epoch 160/200  loss 0.00139
+      [synechism] epoch 200/200  loss 0.00131
+    synechism        median VPT(0.4)  3.23 LT  VPT(0.3)  3.04 LT  censored 0/30  (7238s)
+
+=== seed 3 | regime regular ===
+      [synechism] epoch   1/200  loss 0.79400
+      [synechism] epoch  40/200  loss 0.00582
+      [synechism] epoch  80/200  loss 0.00387
+      [synechism] epoch 120/200  loss 0.00191
+      [synechism] epoch 160/200  loss 0.00147
+      [synechism] epoch 200/200  loss 0.00136
+    synechism        median VPT(0.4)  3.35 LT  VPT(0.3)  3.23 LT  censored 0/30  (7244s)
+
+=== seed 4 | regime regular ===
+      [synechism] epoch   1/200  loss 0.83422
+      [synechism] epoch  40/200  loss 0.00542
+      [synechism] epoch  80/200  loss 0.00508
+      [synechism] epoch 120/200  loss 0.00198
+      [synechism] epoch 160/200  loss 0.00150
+      [synechism] epoch 200/200  loss 0.00141
+    synechism        median VPT(0.4)  3.76 LT  VPT(0.3)  3.58 LT  censored 0/30  (7242s)
+
+=== Summary: median VPT(0.4) in Lyapunov times, pooled over seeds and starts ===
+  model                 regular
+  synechism                3.61
+
+Saved: results/irregular_long_syn/regular/main_results.json  total time 603.9 min
+EXIT 0
