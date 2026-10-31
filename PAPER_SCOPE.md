@@ -22,8 +22,5 @@ step-by-step decoding is a confound); ContiFormer as a continuous-time
 Transformer baseline; read Krach and Teichmann (2024) and BITS (2026) in full;
 a second system (Kuramoto-Sivashinsky), then robotics data.
 
-PAUSED: the earlier periodic-correction study (results floor-limited; see
-results/periodic_correction_5seed_summary.md).
-
 OUT OF SCOPE (future work): weather (ERA5), dysts 135-system benchmark,
 uncertainty calibration, Lyapunov-spectrum and invariant-measure checks.

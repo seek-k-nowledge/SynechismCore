@@ -67,9 +67,9 @@ Result files, with per-start VPTs and per-epoch training loss for every model an
 
 ---
 
-## Earlier study (paused)
+## Project history
 
-An earlier experiment asked whether a forecaster's architecture still matters once you keep correcting it with real data. Its results were floor-limited: the metric couldn't report anything below 380 steps. A correction test was also found to fail before its first correction. That study is paused; its summary is kept in [`results/periodic_correction_5seed_summary.md`](results/periodic_correction_5seed_summary.md), and its code is still in `run_v23_benchmark.py`. Earlier exploratory results (v17–v22, free Kaggle GPUs, an older flawed metric) are not part of this work.
+SynechismCore began as an exploratory study of forecasting under periodic correction with real observations. That line of work was discontinued and is not part of this project's claims; its code and notes are preserved, unchanged, in the branch [`archive/periodic-correction-study`](https://github.com/seek-k-nowledge/SynechismCore/tree/archive/periodic-correction-study). The results and claims of this repository are the irregular-sampling results above and in the technical report.
 
 ---
 
@@ -79,25 +79,22 @@ An earlier experiment asked whether a forecaster's architecture still matters on
 SynechismCore/
 ├── run_irregular.py             # Irregular-timing experiment: train, roll out, measure VPT
 ├── run_irregular_parallel.sh    # Full run on one GPU: one worker per sampling regime
-├── run_v23_benchmark.py         # Earlier correction study (paused)
 ├── src/
 │   ├── irregular_data.py        # Lorenz-63 observed under 4 sampling regimes
 │   ├── irregular_models.py      # SynechismV23 for irregular timing + time-aware baselines
 │   ├── v23_components.py        # SynechismV23 components (elastic ODE, bypass, shutter)
 │   ├── models.py                # Encoder, Koopman lifting, baseline building blocks
 │   ├── hyperagent.py            # Event detector + jump correction
-│   └── ...                      # metrics, training and stats helpers from earlier work
+│   └── ...                      # metrics, training and stats helpers
 ├── docs/
 │   ├── IRREGULAR_TIMING.md          # The experiment: data, models, metric, how to run
 │   ├── ARCHITECTURE.md              # Model description
 │   ├── architecture_irregular.png   # Figure 1 (make_architecture_irregular.py)
 │   ├── irregular_results_200ep.png  # Main results figure (make_results_figure.py)
-│   ├── irregular_results_50ep.png   # 50-epoch results figure
-│   └── architecture_v23.png         # Figure for the earlier correction study
+│   └── irregular_results_50ep.png   # 50-epoch results figure
 ├── results/
 │   ├── irregular_200ep/         # Main run (200 epochs): results JSON + logs per regime
-│   ├── irregular_50ep/          # 50-epoch run: results JSON + logs per regime
-│   └── periodic_correction_5seed_summary.md
+│   └── irregular_50ep/          # 50-epoch run: results JSON + logs per regime
 ├── paper/                   # Technical report (PDF)
 ├── PAPER_SCOPE.md
 └── requirements.txt
