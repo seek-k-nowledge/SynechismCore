@@ -1,0 +1,47 @@
+Seed-level re-analysis of results/irregular_200ep (VPT in Lyapunov times; seed value = median of 30 forecasts)
+
+######## threshold vpt_0.4
+
+== regular: means of seed medians  synechism 3.55, lstm 2.08, transformer 2.79, mamba 2.77
+   vs lstm        seeds won 5/5 (exact sign test p=0.062); paired t over 5 seed medians p=0.0004; mean gain +1.47 LT, cluster-bootstrap 95% CI [+1.24, +1.70]; per-forecast wins 139/150 (pooled Wilcoxon p=5.8e-21, not independent)
+   vs transformer seeds won 5/5 (exact sign test p=0.062); paired t over 5 seed medians p=0.0020; mean gain +0.77 LT, cluster-bootstrap 95% CI [+0.64, +0.98]; per-forecast wins 120/150 (pooled Wilcoxon p=1.7e-13, not independent)
+   vs mamba       seeds won 5/5 (exact sign test p=0.062); paired t over 5 seed medians p=0.0026; mean gain +0.78 LT, cluster-bootstrap 95% CI [+0.57, +0.99]; per-forecast wins 117/150 (pooled Wilcoxon p=5.2e-13, not independent)
+
+== jitter: means of seed medians  synechism 2.45, lstm 2.24, transformer 1.44, mamba 1.20
+   vs lstm        seeds won 4/5 (exact sign test p=0.375); paired t over 5 seed medians p=0.0904; mean gain +0.21 LT, cluster-bootstrap 95% CI [+0.04, +0.37]; per-forecast wins 88/150 (pooled Wilcoxon p=5.9e-04, not independent)
+   vs transformer seeds won 5/5 (exact sign test p=0.062); paired t over 5 seed medians p=0.0002; mean gain +1.01 LT, cluster-bootstrap 95% CI [+0.86, +1.13]; per-forecast wins 120/150 (pooled Wilcoxon p=2.6e-15, not independent)
+   vs mamba       seeds won 5/5 (exact sign test p=0.062); paired t over 5 seed medians p=0.0000; mean gain +1.24 LT, cluster-bootstrap 95% CI [+1.17, +1.36]; per-forecast wins 133/150 (pooled Wilcoxon p=3.3e-22, not independent)
+
+== missing: means of seed medians  synechism 2.32, lstm 2.10, transformer 0.79, mamba 0.69
+   vs lstm        seeds won 4/5 (exact sign test p=0.375); paired t over 5 seed medians p=0.0997; mean gain +0.22 LT, cluster-bootstrap 95% CI [+0.04, +0.40]; per-forecast wins 86/150 (pooled Wilcoxon p=4.7e-03, not independent)
+   vs transformer seeds won 5/5 (exact sign test p=0.062); paired t over 5 seed medians p=0.0000; mean gain +1.53 LT, cluster-bootstrap 95% CI [+1.42, +1.67]; per-forecast wins 138/150 (pooled Wilcoxon p=1.6e-24, not independent)
+   vs mamba       seeds won 5/5 (exact sign test p=0.062); paired t over 5 seed medians p=0.0000; mean gain +1.63 LT, cluster-bootstrap 95% CI [+1.49, +1.76]; per-forecast wins 143/150 (pooled Wilcoxon p=2.2e-25, not independent)
+
+== exponential: means of seed medians  synechism 2.03, lstm 1.78, transformer 0.55, mamba 0.50
+   vs lstm        seeds won 4/5 (exact sign test p=0.375); paired t over 5 seed medians p=0.3064; mean gain +0.25 LT, cluster-bootstrap 95% CI [-0.15, +0.60]; per-forecast wins 86/150 (pooled Wilcoxon p=3.5e-02, not independent)
+   vs transformer seeds won 5/5 (exact sign test p=0.062); paired t over 5 seed medians p=0.0007; mean gain +1.48 LT, cluster-bootstrap 95% CI [+1.24, +1.77]; per-forecast wins 146/150 (pooled Wilcoxon p=6.9e-26, not independent)
+   vs mamba       seeds won 5/5 (exact sign test p=0.062); paired t over 5 seed medians p=0.0004; mean gain +1.53 LT, cluster-bootstrap 95% CI [+1.32, +1.78]; per-forecast wins 149/150 (pooled Wilcoxon p=3.4e-26, not independent)
+
+######## threshold vpt_0.3
+
+== regular: means of seed medians  synechism 3.40, lstm 1.82, transformer 2.53, mamba 2.59
+   vs lstm        seeds won 5/5 (exact sign test p=0.062); paired t over 5 seed medians p=0.0005; mean gain +1.58 LT, cluster-bootstrap 95% CI [+1.31, +1.82]; per-forecast wins 143/150 (pooled Wilcoxon p=2.0e-22, not independent)
+   vs transformer seeds won 5/5 (exact sign test p=0.062); paired t over 5 seed medians p=0.0019; mean gain +0.87 LT, cluster-bootstrap 95% CI [+0.67, +1.08]; per-forecast wins 120/150 (pooled Wilcoxon p=2.3e-13, not independent)
+   vs mamba       seeds won 5/5 (exact sign test p=0.062); paired t over 5 seed medians p=0.0017; mean gain +0.81 LT, cluster-bootstrap 95% CI [+0.62, +1.01]; per-forecast wins 117/150 (pooled Wilcoxon p=2.7e-13, not independent)
+
+== jitter: means of seed medians  synechism 2.30, lstm 1.84, transformer 1.10, mamba 0.95
+   vs lstm        seeds won 5/5 (exact sign test p=0.062); paired t over 5 seed medians p=0.0142; mean gain +0.47 LT, cluster-bootstrap 95% CI [+0.25, +0.65]; per-forecast wins 93/150 (pooled Wilcoxon p=1.4e-05, not independent)
+   vs transformer seeds won 5/5 (exact sign test p=0.062); paired t over 5 seed medians p=0.0000; mean gain +1.20 LT, cluster-bootstrap 95% CI [+1.10, +1.27]; per-forecast wins 119/150 (pooled Wilcoxon p=2.0e-16, not independent)
+   vs mamba       seeds won 5/5 (exact sign test p=0.062); paired t over 5 seed medians p=0.0000; mean gain +1.36 LT, cluster-bootstrap 95% CI [+1.27, +1.44]; per-forecast wins 135/150 (pooled Wilcoxon p=4.9e-24, not independent)
+
+== missing: means of seed medians  synechism 2.10, lstm 1.76, transformer 0.60, mamba 0.56
+   vs lstm        seeds won 5/5 (exact sign test p=0.062); paired t over 5 seed medians p=0.0214; mean gain +0.34 LT, cluster-bootstrap 95% CI [+0.22, +0.52]; per-forecast wins 92/150 (pooled Wilcoxon p=4.4e-05, not independent)
+   vs transformer seeds won 5/5 (exact sign test p=0.062); paired t over 5 seed medians p=0.0000; mean gain +1.50 LT, cluster-bootstrap 95% CI [+1.37, +1.62]; per-forecast wins 144/150 (pooled Wilcoxon p=9.8e-26, not independent)
+   vs mamba       seeds won 5/5 (exact sign test p=0.062); paired t over 5 seed medians p=0.0000; mean gain +1.54 LT, cluster-bootstrap 95% CI [+1.46, +1.63]; per-forecast wins 145/150 (pooled Wilcoxon p=6.0e-26, not independent)
+
+== exponential: means of seed medians  synechism 1.81, lstm 1.41, transformer 0.39, mamba 0.35
+   vs lstm        seeds won 4/5 (exact sign test p=0.375); paired t over 5 seed medians p=0.0770; mean gain +0.40 LT, cluster-bootstrap 95% CI [+0.07, +0.65]; per-forecast wins 91/150 (pooled Wilcoxon p=5.2e-04, not independent)
+   vs transformer seeds won 5/5 (exact sign test p=0.062); paired t over 5 seed medians p=0.0002; mean gain +1.42 LT, cluster-bootstrap 95% CI [+1.24, +1.62]; per-forecast wins 148/150 (pooled Wilcoxon p=2.5e-26, not independent)
+   vs mamba       seeds won 5/5 (exact sign test p=0.062); paired t over 5 seed medians p=0.0001; mean gain +1.47 LT, cluster-bootstrap 95% CI [+1.31, +1.63]; per-forecast wins 150/150 (pooled Wilcoxon p=2.3e-26, not independent)
+
+Parameter counts: {'synechism': 876502, 'transformer': 847292, 'lstm': 201091, 'mamba': 228044}
