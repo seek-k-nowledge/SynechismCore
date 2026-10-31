@@ -8,8 +8,10 @@ information?
 ## Data
 
 Lorenz-63 (rho = 28) is integrated accurately once (DOP853, rtol 1e-10) and
-observed at times drawn from four regimes. Every regime has the same mean
-gap (0.02 time units), so they differ only in how uneven the timing is.
+observed at times drawn from four regimes. Every regime has the same nominal
+mean gap (0.02 time units), so they differ mainly in how uneven the timing is.
+(The exponential regime floors gaps at 0.002 without renormalizing, which
+raises its expected mean slightly, and finite samples vary around 0.02.)
 
 | Regime | Gap between observations | Unevenness (CV) |
 |---|---|---|
@@ -77,7 +79,7 @@ VPTs and per-epoch training loss, and `curves/` with every error curve.
 | SynechismV23 | 3.55 | 2.45 | 2.32 | 2.03 |
 | LSTM | 2.08 | 2.24 | 2.10 | 1.78 |
 | Transformer | 2.79 | 1.44 | 0.79 | 0.55 |
-| Mamba | 2.77 | 1.20 | 0.69 | 0.50 |
+| Mamba-style | 2.77 | 1.20 | 0.69 | 0.50 |
 
 SynechismV23 vs LSTM: 5/5 seeds (regular), 4/5 seeds in each uneven regime;
 per-forecast wins 139, 88, 86, 86 of 150. Vs Transformer and Mamba: 5/5 seeds
@@ -96,7 +98,7 @@ jobs with identical data and settings, and their result lists are merged per reg
 | v22_baseline | 2.68 | 1.67 | 1.50 | 1.41 |
 | LSTM | 2.59 | 1.28 | 1.32 | 1.26 |
 | Transformer | 2.40 | 1.08 | 0.53 | 0.37 |
-| Mamba | 1.69 | 0.96 | 0.47 | 0.32 |
+| Mamba-style | 1.69 | 0.96 | 0.47 | 0.32 |
 
 At 50 epochs training loss was still falling 5-18% over the last 10 epochs, so
 these numbers are not converged. Ablations have not yet been rerun at 200 epochs.

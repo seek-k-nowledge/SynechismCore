@@ -16,7 +16,7 @@ Real-world data rarely arrives on a clock. Robot sensors drop readings, headset 
 
 Most sequence models step once per observation, as if readings were evenly spaced. Transformers, LSTMs and Mamba-style state-space models all work this way, even when they're given the gaps as extra input. **SynechismCore** is a latent neural ODE: it evolves a hidden state continuously in time, so it can be run forward over any gap, short or long.
 
-This project compares SynechismV23 against Transformer, LSTM and Mamba forecasters on the chaotic Lorenz-63 system observed under four sampling regimes. All four regimes have the same average rate but increasingly uneven timing. Every model gets the same data and the same timing information, and we measure how long each model's free-running forecast stays accurate.
+This project compares SynechismV23 against Transformer, LSTM and Mamba-style (simplified selective state-space) forecasters on the chaotic Lorenz-63 system observed under four sampling regimes. All four regimes have the same nominal average rate but increasingly uneven timing. Every model gets the same data and the same timing information, and we measure how long each model's free-running forecast stays accurate.
 
 Full experiment description: [`docs/IRREGULAR_TIMING.md`](docs/IRREGULAR_TIMING.md). Scope: [`PAPER_SCOPE.md`](PAPER_SCOPE.md).
 
@@ -28,7 +28,7 @@ Full experiment description: [`docs/IRREGULAR_TIMING.md`](docs/IRREGULAR_TIMING.
 
 **(a) SynechismV23 hybrid.**
 - **Encoder:** turns the last 50 observations, and the gap before each one, into a starting hidden state.
-- **Latent ODE:** evolves that state to each requested future time. It uses an elastic attractor term that keeps forecasts bounded, golden-ratio (φ) sub-steps inside each gap, and a cheap shortcut through smooth stretches.
+- **Latent ODE:** evolves that state to each requested future time. It uses an elastic attractor term that keeps forecasts bounded, golden-ratio (φ) sub-steps inside each gap, and a laminar bypass that switches to a simpler linear update in smooth stretches (the current implementation computes both updates and selects one, so it does not yet save compute).
 - **HyperAgent:** corrects sudden jumps.
 - **Decoder:** turns the hidden states into forecasts.
 
@@ -49,17 +49,21 @@ The table shows mean valid prediction time in Lyapunov times. Each value is the 
 | **SynechismV23** | **3.55** | **2.45** | **2.32** | **2.03** |
 | LSTM | 2.08 | 2.24 | 2.10 | 1.78 |
 | Transformer | 2.79 | 1.44 | 0.79 | 0.55 |
-| Mamba | 2.77 | 1.20 | 0.69 | 0.50 |
+| Mamba-style | 2.77 | 1.20 | 0.69 | 0.50 |
 
-**What this shows:** with every model trained to convergence, SynechismV23 forecasts longest in every regime.
-- **Against the Transformer and Mamba:** it wins 5 of 5 seeds in every regime. Under exponential sampling it lasts about 4× as long; both lose about 80% of their VPT from regular to exponential sampling.
-- **Against the LSTM, the strongest baseline:** it wins 5 of 5 seeds under regular sampling. Under uneven sampling the lead is smaller but consistent: 4 of 5 seeds per regime, 9–14% longer on average, paired Wilcoxon p between 0.0006 and 0.035 over 150 forecasts per regime.
+**What this shows:** with every model trained for 200 epochs (training-loss histories are in the result files), SynechismV23 had the longest valid prediction time in every regime.
+- **Against the Transformer and the Mamba-style baseline:** it wins 5 of 5 seeds in every regime. Under exponential sampling it lasts about 4× as long; both lose about 80% of their VPT from regular to exponential sampling.
+- **Against the LSTM, the strongest baseline:** it wins 5 of 5 seeds under regular sampling. Under uneven sampling the lead is smaller but consistent: 4 of 5 seeds per regime, 9–14% longer on average, and 86–88 of 150 individual forecasts. Paired Wilcoxon tests over the 150 forecasts give p between 0.0006 and 0.035, but forecasts within a seed share a trained model and test trajectory, so these p-values overstate independence; the seed-level count is the more conservative measure.
 
 **Caveats:**
 - **Degradation:** the LSTM is the least affected by uneven sampling (−14% from regular to exponential, against −43% for SynechismV23). SynechismV23 ranks highest because it starts much higher.
 - **The LSTM comparison:** 5 seeds is enough to see a consistent lead, but more seeds would make it firmer.
 - **Training budget:** at a shorter equal budget of 50 epochs no model had converged. The ranking was the same, but the margins differed ([`docs/irregular_results_50ep.png`](docs/irregular_results_50ep.png)). Training loss changed less than 5% over the last 20 of 200 epochs for every model, except 11% for the Transformer on regular sampling.
-- **Ablations so far are at 50 epochs only.** Golden-ratio sub-steps had no measurable effect on VPT. The other V23 components beat the V22 configuration in 4 of 5 seeds.
+- **Ablations so far are at 50 epochs only.** Golden-ratio sub-steps had no measurable effect on VPT. The other V23 components beat the V22 configuration in 4 of 5 seeds; which component is responsible is not yet isolated.
+- **Architecture and decoding are not yet separated.** SynechismV23 and the LSTM roll forward through the requested times, while the Transformer and Mamba-style baselines output a whole forecast block at once. Step-by-step versions of those baselines are planned.
+- **Baselines.** The Mamba-style model is this project's own simplified state-space implementation, not a reference Mamba. A continuous-time Transformer (ContiFormer) and a simpler continuous-time baseline are planned; without them, the results show how this system performs, not which of its components are necessary.
+- **Equal epochs, not equal cost.** Models share a hidden width and an epoch budget, but parameter counts, runtime and hyperparameter tuning differ; the latent ODE is the slowest to train.
+- **Scope.** One system (Lorenz-63), a separately trained model per sampling regime, and no test on unseen gap distributions. Robots, headsets and weather stations motivate the problem; they are not tested applications.
 
 Result files, with per-start VPTs and per-epoch training loss for every model and seed:
 - [`results/irregular_200ep/`](results/irregular_200ep/) (main)
