@@ -6,7 +6,7 @@
 Paul E. Harris IV · Independent Researcher, Mashantucket Pequot Nation
 MIT License · Target: arXiv preprint, then a 2027 workshop
 
-**Paper (October 2026):** [*Continuous-Time Latent Dynamics for Long-Horizon Chaotic Forecasting under Irregular Sampling*](paper/Harris_2026_Continuous-Time_Latent_Dynamics_Irregular_Sampling.pdf) (PDF, 14 pages)
+**Paper (October 2026):** [*Continuous-Time Latent Dynamics for Long-Horizon Chaotic Forecasting under Irregular Sampling*](paper/Harris_2026_Continuous-Time_Latent_Dynamics_Irregular_Sampling.pdf) (PDF, 14 pages) · DOI: [10.5281/zenodo.23772388](https://doi.org/10.5281/zenodo.23772388)
 
 ---
 
@@ -64,6 +64,7 @@ The table shows mean valid prediction time in Lyapunov times. Each value is the 
 - **Baselines.** The Mamba-style model is this project's own simplified state-space implementation, not a reference Mamba. A continuous-time Transformer (ContiFormer) and a simpler continuous-time baseline are planned; without them, the results show how this system performs, not which of its components are necessary.
 - **Equal epochs, not equal cost.** Models share a hidden width and an epoch budget, but parameter counts differ (SynechismV23 877k, Transformer 847k, Mamba-style 228k, LSTM 201k), as do runtime and hyperparameter tuning; the latent ODE is the slowest to train.
 - **Scope.** One system (Lorenz-63), a separately trained model per sampling regime, and no test on unseen gap distributions. Robots, headsets and weather stations motivate the problem; they are not tested applications.
+- **Not peer reviewed.** This is a self-published technical report; it has not been through peer review.
 
 Result files, with per-start VPTs and per-epoch training loss for every model and seed:
 - [`results/irregular_200ep/`](results/irregular_200ep/) (main)
