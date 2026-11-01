@@ -6,7 +6,7 @@
 Paul E. Harris IV · Independent Researcher, Mashantucket Pequot Nation
 MIT License · Target: arXiv preprint, then a 2027 workshop
 
-**Paper (October 2026):** [*Continuous-Time Latent Dynamics for Long-Horizon Chaotic Forecasting under Irregular Sampling*](paper/Harris_2026_Continuous-Time_Latent_Dynamics_Irregular_Sampling.pdf) (PDF, 14 pages) · DOI: [10.5281/zenodo.23772388](https://doi.org/10.5281/zenodo.23772388)
+**Paper (v1.1.0, November 2026):** [*Continuous-Time Latent Dynamics for Long-Horizon Chaotic Forecasting under Irregular Sampling*](paper/Harris_2026_Continuous-Time_Latent_Dynamics_Irregular_Sampling.pdf) (PDF, 15 pages) · DOI: [10.5281/zenodo.23772387](https://doi.org/10.5281/zenodo.23772387) (always resolves to the latest version). v1.1.0 revises the statistics to treat each seed as one data point; the results are unchanged from v1.0.0.
 
 ---
 
@@ -57,7 +57,7 @@ The table shows mean valid prediction time in Lyapunov times. Each value is the 
 
 **Caveats:**
 - **Degradation:** the LSTM is the least affected by uneven sampling (−14% from regular to exponential, against −43% for SynechismV23). SynechismV23 ranks highest because it starts much higher.
-- **The LSTM comparison:** 5 seeds is enough to see a consistent lead, but more seeds would make it firmer.
+- **The LSTM comparison:** with 5 seeds the lead under uneven sampling is not yet statistically significant; more seeds are planned.
 - **Training budget:** at a shorter equal budget of 50 epochs no model had converged. The ranking was the same, but the margins differed ([`docs/irregular_results_50ep.png`](docs/irregular_results_50ep.png)). Training loss changed less than 5% over the last 20 of 200 epochs for every model, except 11% for the Transformer on regular sampling.
 - **Ablations so far are at 50 epochs only.** Golden-ratio sub-steps had no measurable effect on VPT. The other V23 components beat the V22 configuration in 4 of 5 seeds; which component is responsible is not yet isolated.
 - **Architecture and decoding are not yet separated.** SynechismV23 and the LSTM roll forward through the requested times, while the Transformer and Mamba-style baselines output a whole forecast block at once. Step-by-step versions of those baselines are planned.

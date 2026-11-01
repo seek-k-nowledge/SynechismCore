@@ -46,6 +46,6 @@ Every forecaster receives the same observations, the same past gaps and the same
 - **LSTM** (2 layers) conditioned on each inter-observation gap.
 - **Mamba-style** selective state-space model.
 
-All models are trained to convergence (200 epochs) on Lorenz-63 observed under four sampling regimes with the same average rate (regular, jitter, half missing, exponential), over 5 seeds. Each runs forward on its own predictions and is scored by valid prediction time (VPT) in Lyapunov times. Full data, model and metric details: [`IRREGULAR_TIMING.md`](IRREGULAR_TIMING.md).
+All models are trained for 200 epochs on Lorenz-63 observed under four sampling regimes with the same average rate (regular, jitter, half missing, exponential), over 5 seeds. Each runs forward on its own predictions and is scored by valid prediction time (VPT) in Lyapunov times. Full data, model and metric details: [`IRREGULAR_TIMING.md`](IRREGULAR_TIMING.md).
 
 To regenerate Figure 1: `python docs/make_architecture_irregular.py`.
