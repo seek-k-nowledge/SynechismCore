@@ -22,7 +22,7 @@ BUDGET = sys.argv[3] if len(sys.argv) > 3 else "50 epochs"
 REGIMES = [("regular", "Regular", "0"), ("jitter", "Jitter", "0.29"),
            ("missing", "Half missing", "0.70"), ("exponential", "Exponential", "1.0")]
 MODELS = [("synechism", "SynechismV23"), ("lstm", "LSTM"),
-          ("transformer", "Transformer"), ("mamba", "Mamba")]
+          ("transformer", "Transformer"), ("mamba", "Mamba-style")]
 BLUE = "#2a78d6"; GREY = "#9b9a92"; INK = "#1b1b1a"; INK2 = "#5c5b55"; GRID = "#e6e5df"
 STYLE = {"synechism": (BLUE, 1.0, 2.6, 7), "lstm": (GREY, 1.0, 1.6, 5.5),
          "transformer": (GREY, 0.7, 1.6, 5.5), "mamba": (GREY, 0.45, 1.6, 5.5)}

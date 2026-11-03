@@ -80,7 +80,7 @@ box(X + 1, oy + 1.5, W / 2 - 2, 12.2, "Elastic radius",
     "R_eff = R_base + δR(h) · p_event(h)\nsphere widens when an\nevent detector fires",
     fc=C_SUB, ec=E_ODE, ts=11, bs=9.6, lw=1.2)
 box(cx + 1, oy + 1.5, W / 2 - 2, 12.2, "Integrated to the real times",
-    "RK4 to each requested time, with\n4 golden-ratio (φ) sub-steps per gap;\nbypass: cheap step where smooth",
+    "RK4 to each requested time, with\n4 golden-ratio (φ) sub-steps per gap;\nbypass: linear step where smooth",
     fc=C_SUB, ec=E_ODE, ts=11, bs=9.6, lw=1.2)
 arrow(cx, oy, cx, 28.4, "hidden states at the 20 requested future times", lx=cx + 1.2)
 
@@ -127,7 +127,7 @@ box(bx, 47, bw, 19.5, "Forecasters, each told the gaps and the times to predict"
     "SynechismV23 (this work): latent ODE run over the real gaps\n"
     "Transformer (8 heads, 4 layers): continuous-time positional encoding\n"
     "LSTM: reads each gap; predicts one time at a time\n"
-    "Mamba (state-space model): reads each gap\n"
+    "Mamba-style (state-space model): reads each gap\n"
     "plus two SynechismV23 ablations", fc=C_LOOP, ec=E_LOOP, bs=10.4)
 arrow(bcx, 47, bcx, 43.6)
 box(bx, 27, bw, 16.5, "Free-running forecast",
