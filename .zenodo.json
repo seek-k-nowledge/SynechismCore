@@ -1,5 +1,5 @@
 {
-  "title": "SynechismCore: Continuous-Time Latent Dynamics for Long-Horizon Chaotic Forecasting under Irregular Sampling",
+  "title": "Continuous-Time Latent Dynamics for Long-Horizon Chaotic Forecasting under Irregular Sampling",
   "upload_type": "publication",
   "publication_type": "preprint",
   "description": "<p>Technical report (paper/Harris_2026_Continuous-Time_Latent_Dynamics_Irregular_Sampling.pdf), code and results for a study of whether continuous-time latent dynamics improve long-horizon forecasting of chaotic systems under irregular sampling. SynechismV23, a latent neural ODE, is compared with Transformer, LSTM and simplified Mamba-style forecasters on the Lorenz-63 system under four sampling regimes, with every model trained for 200 epochs over 5 seeds. SynechismV23 attains the longest mean valid prediction time in every regime; its lead over the Transformer and Mamba-style baselines is significant at the seed level, while its lead over the LSTM under irregular sampling is small and not yet statistically significant. Version 1.1.0 revises the statistical analysis; results are unchanged from 1.0.0. Not peer reviewed.</p>",
